@@ -29,21 +29,6 @@ pnpm test:postman                        # the Postman collection via newman, sa
 
 The e2e suite logs in many times a minute from one IP, which is exactly what the auth rate limit is there to stop, hence the raised limit for that run.
 
-### Bugs the test layers caught
-
-Each of these passed every test that existed before it:
-
-- A numeric userId could never buy: BullMQ rejects job ids that look like integers. Found in review.
-- The rate limiter answered 500 instead of 429, and Redis being down answered 500 instead of 503. Found by probing error paths.
-- A returning user in a re-seeded sale stayed "pending" forever: BullMQ kept completed jobs and silently ignored a re-enqueue. Found by running the stress test twice in a row.
-- The API cluster fork-looped forever when the port was taken, pinning every CPU. Found while benchmarking.
-- `reconcile` dropped users whose job was in the DLQ, which would have resold their unit after a replay: an oversell. Found by mutation testing.
-- The login page carried two contradicting robots tags, and a rate-limited login said "Couldn't reach the server". Found by e2e.
-- A test for "tampered password hash" was itself flaky: the last base64 character's low bits don't decode to anything.
-- Routes that read Mongo answered 500 after a 2 s wait when Mongo was down, while the docs promised 503. Found by checking the docs against a dead-Mongo test; fixed with an error handler that maps Mongo outage errors to 503.
-- A server 503 on log in or sign up showed "Couldn't reach the server". Found in review; the web app now says the shop is down.
-- Mutation testing kept finding a setup trap: when a `beforeAll` throws, Vitest skips the tests instead of failing them. Setup now runs in `beforeEach` or inside the test.
-
 ## Stress tests
 
 ```bash

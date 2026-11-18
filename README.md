@@ -6,6 +6,14 @@ A flash sale for one limited-edition product: a configurable sale window, fixed 
 |---|---|---|
 | ![Shop page, logged in](apps/docs/images/shop-desktop.png) | ![Log in page](apps/docs/images/login-page.png) | ![Shop page on a phone](apps/docs/images/shop-phone.png) |
 
+## Contents
+
+- **Get started**: [Test account](#test-account) · [Quick start](#quick-start) · [Project structure](#project-structure)
+- **Requirements**: [Requirements at a glance](#requirements-at-a-glance) · [How it works](#how-it-works) · [The frontend, requirement by requirement](#the-frontend-requirement-by-requirement) · [The flow](#the-flow) · [What it does](#what-it-does)
+- **Reference**: [API](#api) · [Ops CLI](#ops-cli) · [Configuration](#configuration)
+- **Testing and scale**: [Tests](#tests) · [Stress tests](#stress-tests) · [Scaling](#scaling) · [Trade-offs](#trade-offs)
+- **Repository**: [Docs](#docs)
+
 ## Test account
 
 | Email | Password |
@@ -29,6 +37,80 @@ pnpm dev                    # API :3000, worker, web :5173
 
 Open http://localhost:5173 and log in with the test account. To start the sale right now instead of in a minute: `pnpm cli seed --force --start now --minutes 60`.
 
+## Project structure
+
+```
+flashsale/
+├── package.json                       # pnpm workspaces root: dev, build, test, stress, cli scripts
+├── pnpm-workspace.yaml
+├── turbo.json                         # task graph + env vars passed through to tasks
+├── tsconfig.base.json
+├── eslint.config.mjs                  # one flat ESLint config for every package
+├── docker-compose.yml                 # Redis 7 + MongoDB 8 for local dev
+├── .env.example                       # every setting, with working local defaults
+├── packages/
+│   └── core/                          # the rules, shared by every app
+│       └── src/
+│           ├── lua-scripts.ts         # atomic purchase + release Lua scripts
+│           ├── sale-gate.ts           # SaleGate: configure, purchase, release, snapshot
+│           ├── keys.ts                # Redis key names, job options, orderJobId
+│           ├── orders.ts              # confirmOrder: upsert on the unique userId index
+│           ├── product.ts             # product display data (one Mongo doc)
+│           ├── shutdown.ts            # gracefulShutdown: drain on SIGTERM, 10 s deadline
+│           ├── redis.ts, mongo.ts     # client factories
+│           └── auth/                  # scrypt passwords, signed sessions, reset tokens, outbox
+├── apps/
+│   ├── api/                           # Fastify HTTP server
+│   │   ├── openapi.yaml               # API contract, served as Swagger UI at /docs
+│   │   └── src/
+│   │       ├── server.ts              # entrypoint: cluster (API_PROCESSES), graceful shutdown
+│   │       ├── app.ts                 # buildApp(deps): plugins, hooks, routes (no globals)
+│   │       ├── load-shedding.ts       # 503 before any Redis call when Redis is down or loop lags
+│   │       ├── idempotency.ts         # Idempotency-Key claim / replay / release
+│   │       ├── purchase-response.ts   # gate outcome -> HTTP status table
+│   │       ├── session.ts             # session cookie: set, clear, requireUser
+│   │       ├── config.ts              # env -> config, refuses unsafe production config
+│   │       ├── routes/                # sale, purchase, auth, product, health
+│   │       └── libs/memory-tracker/   # opt-in: live objects per route at /debug/memory
+│   ├── worker/                        # BullMQ consumer
+│   │   └── src/                       # index.ts (entry + shutdown), worker.ts, processor.ts
+│   ├── cli/                           # pnpm cli: ops tool
+│   │   └── src/
+│   │       ├── commands/              # seed, status, user:clean, reset, dlq:replay, reconcile, ...
+│   │       ├── data/                  # seed product + demo account
+│   │       └── menu.ts, run.ts        # interactive menu, confirm-before-delete
+│   ├── web/                           # React + Vite storefront
+│   │   ├── src/
+│   │   │   ├── api.ts                 # the only file that calls fetch
+│   │   │   ├── pages/                 # Shop, Login, Register, ForgotPassword, ResetPassword
+│   │   │   ├── components/            # BuyBox, FlashSaleBar, StockMeter, Gallery, ...
+│   │   │   ├── usePurchase.ts         # buy, poll until confirmed, know if already bought
+│   │   │   ├── messages.ts            # every user-facing outcome text
+│   │   │   └── index.css              # blue/white theme tokens on :root
+│   │   ├── public/                    # favicon, robots.txt, product photos
+│   │   └── e2e/                       # Playwright: buy, race, sold out, accounts, clickjacking
+│   └── docs/                          # Mintlify site (pnpm docs); images/ = every screenshot
+├── stress/src/
+│   ├── scenarios.ts                   # the 3 scenarios (26,000 requests)
+│   ├── run-scenario.ts                # fire requests, wait for the queue to drain
+│   └── invariants.ts                  # no oversell, no duplicates, Redis = Mongo
+├── tests/python/                      # black-box contract tests (pytest) vs openapi.yaml
+├── postman/                           # Postman collection + local environment
+├── docs/
+│   ├── architecture.md                # diagram, request walkthrough, scaling
+│   ├── adr/                           # decisions 0001 to 0013
+│   ├── PRD.md                         # original design spec
+│   └── verification-log.md            # dated results of the full check matrix
+├── .claude/                           # agents (one per package), skills, flash-sale-arief plugin
+├── agent-os/, .pi/, .serena/          # agent standards, plans, code navigation
+├── .husky/                            # pre-commit lint, pre-push typecheck
+├── CLAUDE.md, AGENTS.md               # how to work in this repo
+├── PERFORMANCE_REVIEW.md              # measured numbers, knobs, next levers
+└── REPOSITORY_ANALYSIS.md             # size, coverage, risks
+```
+
+Each package has its own `CLAUDE.md` with local rules. Tests sit next to the code in `src/__tests__/` (unit, integration) in every package.
+
 ## Requirements at a glance
 
 | Requirement | Where it's met |
@@ -48,15 +130,25 @@ A purchase never touches the database. A load-shedding hook first answers 503 if
 
 ```mermaid
 flowchart TD
-    U["Browser (React)"] -->|"HTTPS, session cookie"| LB["Load balancer"]
-    LB --> API["Fastify API (N stateless processes)"]
-    API -->|"1. verify session (in memory)"| API
-    API -->|"2. rate limit per user + purchase.lua: window, dedupe, decrement"| R[("Redis")]
-    API -->|"3. enqueue (jobId = order-userId)"| Q[["BullMQ queue"]]
-    Q --> W["Order worker (N processes)"]
+    U["Browser (React)"] -->|"HTTPS + session cookie"| LB["Load balancer"]
+    LB --> S0
+
+    subgraph API["Fastify API: N stateless processes"]
+        direction TB
+        S0["0. Load shedding<br/>503 if Redis is down or the loop lags"] --> S1["1. Verify session<br/>in memory, no DB"]
+        S1 --> S2["2. Rate limit per account<br/>+ Idempotency-Key claim"]
+        S2 --> S3["3. purchase.lua<br/>window, dedupe, stock, decrement"]
+        S3 --> S4["4. Enqueue<br/>jobId = order-userId"]
+    end
+
+    S2 --> R[("Redis")]
+    S3 --> R
+    S4 --> Q[["BullMQ queue (on Redis)"]]
+    Q --> W["Order worker: N processes"]
     W -->|"upsert, unique userId index"| M[("MongoDB")]
     W -->|"after 5 failed attempts"| DLQ[["Failed set (DLQ)"]]
-    API -.->|"accounts, product, reset tokens, outbox (not on the purchase path)"| M
+    DLQ -.->|"pnpm cli dlq:replay"| Q
+    API -.->|"status, accounts, product, order status"| M
 ```
 
 The full writeup, with a request walkthrough, failure handling, and measured scaling, is in [`docs/architecture.md`](docs/architecture.md). Each major decision has an ADR in [`docs/adr/`](docs/adr/README.md).
@@ -90,41 +182,6 @@ Captured in a real browser against the running stack.
 | ![Upcoming](apps/docs/images/flows/11-upcoming.jpg) **11. Upcoming.** Countdown to the start; Buy Now disabled. | ![Ended](apps/docs/images/flows/12-ended.jpg) **12. Ended.** The page says so; Buy Now disabled. |
 
 On a phone it stacks into one column (third screenshot at the top).
-
-## Repo structure
-
-```
-apps/
-  api/       Fastify: sale status, purchase, accounts, product. Cluster mode via API_PROCESSES.
-  worker/    BullMQ consumer: confirms reserved orders into MongoDB.
-  web/       React storefront: shop page plus log in, sign up, forgot and reset password.
-             public/ holds the favicon, robots.txt and product photos. e2e/ is Playwright.
-  cli/       pnpm cli: seed, clean up, inject product, accounts, outbox, DLQ replay, reconcile.
-  docs/      Mintlify docs site (pnpm docs). images/ holds every screenshot in this README.
-packages/
-  core/      The rules, shared by everything: Lua purchase gate, Redis keys, job options,
-             orders, product, users, sessions, password reset tokens, outbox.
-stress/      Load harness: 26,000 requests, then invariant checks against Redis and Mongo.
-tests/python/ Black-box contract tests (pytest) against the running API.
-postman/     Postman collection + local environment (pnpm test:postman runs it with newman).
-docs/
-  architecture.md   diagram, request walkthrough, failure handling, measured scaling
-  adr/              one record per major decision (0001 to 0013)
-  PRD.md            the original design spec
-  verification-log.md  dated results of the full check matrix
-.claude/agents/     subagents for parallel work, one per package plus a read-only verifier
-.claude/skills/     how-tos: ADRs, API changes, reading the databases, CodeGraph, style, git, stack, frontend
-.claude/plugins/flash-sale-arief/  Claude plugin: investigate, app-server-mutation-testing, verify-and-log, commit-and-pr
-AGENTS.md           the same rules for non-Claude agents
-agent-os/           Agent OS: product mission and roadmap, standards, spec/task commands
-docs/superpowers/plans/  implementation plans for the work in this repo; .pi/plans/ for Pi
-.serena/, .mcp.json Serena code-navigation MCP server for this project (dashboard off)
-.husky/             pre-commit: lint-staged (eslint --fix); pre-push: typecheck + spec drift
-.vscode/, .tools/   debug configs and recommended extensions; mutation runs on changed packages only
-PERFORMANCE_REVIEW.md   hot path cost, measured numbers, knobs, next levers
-REPOSITORY_ANALYSIS.md  size, test coverage, risks and debt
-CLAUDE.md           how to work in this repo; each package has its own CLAUDE.md too
-```
 
 ## What it does
 
@@ -253,21 +310,6 @@ pnpm test:postman                        # the Postman collection via newman, sa
 ```
 
 The e2e suite logs in many times a minute from one IP, which is exactly what the auth rate limit is there to stop, hence the raised limit for that run.
-
-### Bugs the test layers caught
-
-Each of these passed every test that existed before it:
-
-- A numeric userId could never buy: BullMQ rejects job ids that look like integers. Found in review.
-- The rate limiter answered 500 instead of 429, and Redis being down answered 500 instead of 503. Found by probing error paths.
-- A returning user in a re-seeded sale stayed "pending" forever: BullMQ kept completed jobs and silently ignored a re-enqueue. Found by running the stress test twice in a row.
-- The API cluster fork-looped forever when the port was taken, pinning every CPU. Found while benchmarking.
-- `reconcile` dropped users whose job was in the DLQ, which would have resold their unit after a replay: an oversell. Found by mutation testing.
-- The login page carried two contradicting robots tags, and a rate-limited login said "Couldn't reach the server". Found by e2e.
-- A test for "tampered password hash" was itself flaky: the last base64 character's low bits don't decode to anything.
-- Routes that read Mongo answered 500 after a 2 s wait when Mongo was down, while the docs promised 503. Found by checking the docs against a dead-Mongo test; fixed with an error handler that maps Mongo outage errors to 503.
-- A server 503 on log in or sign up showed "Couldn't reach the server". Found in review; the web app now says the shop is down.
-- Mutation testing kept finding a setup trap: when a `beforeAll` throws, Vitest skips the tests instead of failing them. Setup now runs in `beforeEach` or inside the test.
 
 ## Stress tests
 
