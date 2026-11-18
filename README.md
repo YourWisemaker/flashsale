@@ -156,15 +156,24 @@ flowchart TD
         S3 --> S4["4. Enqueue<br/>jobId = order-userId"]
     end
 
-    S2 --> R[("Redis")]
-    S3 --> R
-    S4 --> Q[["BullMQ queue (on Redis)"]]
-    Q --> W["Order worker: N processes"]
-    W -->|"upsert, unique userId index"| M[("MongoDB")]
-    W -->|"after 5 failed attempts"| DLQ[["Failed set (DLQ)"]]
-    DLQ -.->|"pnpm cli dlq:replay"| Q
+    subgraph REDIS["Redis: one server, two jobs"]
+        direction LR
+        GATE[("Purchase gate (synchronous)<br/>sale:config, sale:stock, sale:buyers<br/>rate-limit counters, idem:*")]
+        QUEUE[["Order queue (asynchronous)<br/>BullMQ: bull:orders:*"]]
+        DLQ[["Failed set (DLQ)<br/>bull:orders:failed"]]
+    end
+
+    S2 --> GATE
+    S3 -->|"atomic: decides who gets a unit"| GATE
+    S4 -->|"hand-off: answer 202 pending now"| QUEUE
+    QUEUE --> W["Order worker: N processes"]
+    W -->|"upsert, unique userId index"| M[("MongoDB<br/>durable orders, accounts, product")]
+    W -->|"after 5 failed attempts"| DLQ
+    DLQ -.->|"pnpm cli dlq:replay"| QUEUE
     API -.->|"status, accounts, product, order status"| M
 ```
+
+The two Redis boxes are the same server used two ways: the **purchase gate** is read and written inside the request (the atomic Lua script decides who gets a unit, in about a millisecond); the **order queue** is BullMQ's job list, which the worker drains afterwards to write the durable order to MongoDB. The buyer only waits for the first. In production they can be split onto two Redis instances.
 
 The full writeup, with a request walkthrough, failure handling, and measured scaling, is in [`docs/architecture.md`](docs/architecture.md). Each major decision has an ADR in [`docs/adr/`](docs/adr/README.md).
 
