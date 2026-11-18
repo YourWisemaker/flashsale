@@ -1,0 +1,8 @@
+# Agent OS config for this repo. Standards in standards/ are the source the
+# .claude/skills/* wrappers point at; commands/ are the spec-to-ship workflow.
+version: 2.1.1
+profile: flashsale
+claude_code_commands: true
+use_claude_code_subagents: true
+agent_os_commands: true
+standards_as_claude_code_skills: true

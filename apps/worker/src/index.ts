@@ -1,10 +1,10 @@
-import { connectMongo, createQueueConnection, ensureOrderIndexes } from "@flashsale/core";
+import { connectMongo, createQueueConnection, ensureOrderIndexes, gracefulShutdown } from "@flashsale/core";
 import { loadConfig } from "./config.js";
 import { createOrderWorker } from "./worker.js";
 
 async function main() {
   const config = loadConfig(process.env);
-  const { db } = await connectMongo(config.mongoUrl);
+  const { client: mongo, db } = await connectMongo(config.mongoUrl);
   await ensureOrderIndexes(db);
 
   const connection = createQueueConnection(config.redisUrl);
@@ -15,12 +15,13 @@ async function main() {
 
   console.log(`worker running, concurrency=${config.concurrency}`);
 
-  for (const signal of ["SIGINT", "SIGTERM"] as const) {
-    process.on(signal, async () => {
-      await worker.close();
-      process.exit(0);
-    });
-  }
+  // worker.close() stops taking jobs and waits for the active ones to
+  // finish, so no confirmation is cut off halfway. A job that outlives the
+  // deadline isn't lost: its lock expires and another worker retries it.
+  gracefulShutdown(async () => {
+    await worker.close();
+    await Promise.all([connection.quit(), mongo.close()]);
+  });
 }
 
 main().catch((err) => {

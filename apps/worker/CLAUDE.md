@@ -8,4 +8,4 @@ BullMQ consumer: takes `confirm-order` jobs and calls `confirmOrder` (core). Thi
 
 Tests: Redis db 13, Mongo `flashsale_test_worker`, `fileParallelism: false` because files share those. Await `worker.waitUntilReady()` before adding jobs, and use unique job ids per test.
 
-`src/index.ts` is wiring only and excluded from mutation testing.
+`src/index.ts` is wiring only and excluded from mutation testing. On SIGTERM it drains through `gracefulShutdown` (core): `worker.close()` waits for active jobs, then Redis and Mongo close. `entry.test.ts` checks the real process exits 0.

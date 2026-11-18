@@ -25,6 +25,9 @@ reports/
 # CodeGraph index (codegraph init / index); local, rebuilt on demand
 .codegraph/
 
+# Freeze profiler captures (FREEZE_PROFILER=1)
+profiles/
+
 # Python contract tests
 .venv/
 __pycache__/

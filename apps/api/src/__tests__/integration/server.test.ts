@@ -50,6 +50,19 @@ describe("API cluster entry point", () => {
     expect(await waitForHealth(3917, 15_000)).toBe(200);
   }, 20_000);
 
+  it.each([
+    ["one process", "1", 3919],
+    ["the cluster primary", "2", 3920],
+  ])("drains and exits 0 on SIGTERM to %s, freeing the port", async (_name, processes, port) => {
+    child = startApi({ PORT: String(port), API_PROCESSES: processes });
+    expect(await waitForHealth(port, 15_000)).toBe(200);
+
+    child.kill("SIGTERM");
+
+    expect(await exitCode(child, 12_000)).toBe(0);
+    expect(await fetch(`http://localhost:${port}/health`).then(() => "still serving", () => "closed")).toBe("closed");
+  }, 30_000);
+
   it("exits non-zero instead of fork-looping when the port is already taken", async () => {
     blocker = createServer();
     await new Promise<void>((resolve) => blocker!.listen(3918, resolve));

@@ -26,6 +26,10 @@ Both 503s fire before the purchase gate, so a shed request never holds a unit. T
 There is deliberately no `commandTimeout` on the API's Redis client. A timed-out `EVALSHA` may already have reserved a unit; answering 503 would strand it.
 </Warning>
 
+## Graceful shutdown
+
+On SIGTERM the API stops accepting connections, lets in-flight requests finish (anything arriving meanwhile gets 503), then closes the queue, Redis and Mongo. The cluster primary stops replacing children and waits for them. The worker finishes its active jobs before closing. Past 10 s the process exits 1 anyway; a job cut off there is retried by another worker. ADR 0012.
+
 ## Caching
 
 | Endpoint | Cache |

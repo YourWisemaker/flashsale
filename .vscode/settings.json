@@ -1,0 +1,18 @@
+{
+  "eslint.useFlatConfig": true,
+  "eslint.workingDirectories": [{ "mode": "auto" }],
+  "editor.codeActionsOnSave": { "source.fixAll.eslint": "explicit" },
+  "files.eol": "\n",
+  "typescript.tsdk": "node_modules/typescript/lib",
+  "typescript.preferences.importModuleSpecifierEnding": "js",
+  "search.exclude": {
+    "**/dist": true,
+    "**/.stryker-tmp": true,
+    "**/reports": true,
+    ".codegraph": true,
+    "**/node_modules": true
+  },
+  "yaml.schemas": {
+    "https://json.schemastore.org/openapi-3.0.json": "apps/api/openapi.yaml"
+  }
+}

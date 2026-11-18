@@ -25,6 +25,7 @@ pnpm test:integration             # real Redis + Mongo
 pnpm test:mutation                # touched core, api, worker or cli: must stay 100%
 pnpm test:e2e                     # touched web or auth; needs AUTH_RATE_LIMIT_MAX=1000 pnpm dev running
 pnpm test:python                  # API contract from outside; needs a running API and .venv (see tests/python)
+pnpm test:postman                 # Postman collection via newman; needs a running API
 ```
 
 ## Rules that break the system if ignored
@@ -37,6 +38,8 @@ pnpm test:python                  # API contract from outside; needs a running A
 6. The API stays stateless; shared state lives in Redis.
 7. Status codes are a contract: change `apps/api/openapi.yaml`, its copy in `apps/docs/api-reference/`, the README API table and `apps/web/src/api.ts` together.
 8. Load shedding answers before the gate; no `commandTimeout` on the API's Redis client.
+9. Every process closes what it opens on SIGTERM (`gracefulShutdown` in core).
+10. Diagnostics (freeze profiler, memory tracker, AI explanation) stay off unless their env var is set.
 
 Full list with reasons: `CLAUDE.md`, "Invariants". Decisions: `docs/adr/`.
 

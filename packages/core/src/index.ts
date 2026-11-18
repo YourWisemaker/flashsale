@@ -34,3 +34,5 @@ export type { UserDocument } from "./auth/users.js";
 export { PASSWORD_RESETS_COLLECTION, RESET_TOKEN_TTL_MS, ensureResetIndexes, createResetToken, consumeResetToken } from "./auth/password-reset.js";
 export { OUTBOX_COLLECTION, sendMail, readOutbox } from "./auth/outbox.js";
 export type { Mail } from "./auth/outbox.js";
+export { gracefulShutdown } from "./shutdown.js";
+export type { ShutdownDeps } from "./shutdown.js";

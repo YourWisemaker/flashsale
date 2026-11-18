@@ -10,6 +10,7 @@ import type { Redis } from "ioredis";
 import { MongoNetworkError, MongoServerSelectionError, MongoTopologyClosedError, type Db } from "mongodb";
 import { createIdempotencyStore } from "./idempotency.js";
 import { registerLoadShedding } from "./load-shedding.js";
+import type { MemoryTracker } from "./libs/memory-tracker/index.js";
 import { registerAuthRoutes } from "./routes/auth.js";
 import { registerHealthRoute } from "./routes/health.js";
 import { registerProductRoute } from "./routes/product.js";
@@ -29,6 +30,8 @@ export interface AppDeps {
   cookieSecure: boolean;
   /** Shed requests with 503 once event loop lag passes this. 0 or unset: off. */
   maxEventLoopLagMs?: number;
+  /** When set, every request is tracked and GET /debug/memory serves the counts. Off unless MEMORY_TRACKER=1. */
+  memoryTracker?: MemoryTracker;
   logger?: boolean;
 }
 
@@ -103,6 +106,15 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   registerAuthRoutes(app, { ...deps, cookies });
   registerPurchaseRoutes(app, { ...deps, cookies, idempotency: createIdempotencyStore(deps.redis) });
   registerHealthRoute(app, deps);
+  if (deps.memoryTracker) registerMemoryDebug(app, deps.memoryTracker);
 
   return app;
+}
+
+/** Debug-only: never registered unless the tracker is on, so it 404s in normal runs. */
+function registerMemoryDebug(app: FastifyInstance, tracker: MemoryTracker): void {
+  app.addHook("onRequest", async (request) => {
+    tracker.track(request, `${request.method} ${request.routeOptions.url ?? "unmatched"}`);
+  });
+  app.get("/debug/memory", async () => tracker.snapshot());
 }

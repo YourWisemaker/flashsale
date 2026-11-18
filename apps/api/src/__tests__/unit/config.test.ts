@@ -14,6 +14,9 @@ describe("loadConfig", () => {
       webUrl: "http://localhost:5173",
       cookieSecure: false,
       maxEventLoopLagMs: 200,
+      memoryTracker: false,
+      freezeProfiler: { enabled: false, thresholdMs: 500, dir: "profiles", s3Bucket: null },
+      anthropicApiKey: null,
     });
   });
 
@@ -62,5 +65,23 @@ describe("loadConfig", () => {
     it("starts with a strong secret, and forces secure cookies", () => {
       expect(prod({ AUTH_SECRET: "x".repeat(32) })).toMatchObject({ authSecret: "x".repeat(32), cookieSecure: true });
     });
+  });
+
+  it("turns the debug aids on only for the exact value 1", () => {
+    const on = loadConfig({
+      MEMORY_TRACKER: "1",
+      FREEZE_PROFILER: "1",
+      FREEZE_THRESHOLD_MS: "250",
+      FREEZE_PROFILE_DIR: "/tmp/freezes",
+      FREEZE_PROFILE_S3_BUCKET: "ops-profiles",
+      ANTHROPIC_API_KEY: "sk-test",
+    });
+    expect(on).toMatchObject({
+      memoryTracker: true,
+      freezeProfiler: { enabled: true, thresholdMs: 250, dir: "/tmp/freezes", s3Bucket: "ops-profiles" },
+      anthropicApiKey: "sk-test",
+    });
+    const off = loadConfig({ MEMORY_TRACKER: "true", FREEZE_PROFILER: "yes", FREEZE_PROFILE_S3_BUCKET: "", ANTHROPIC_API_KEY: "" });
+    expect(off).toMatchObject({ memoryTracker: false, freezeProfiler: { enabled: false, s3Bucket: null }, anthropicApiKey: null });
   });
 });

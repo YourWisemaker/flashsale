@@ -77,13 +77,20 @@ packages/
              orders, product, users, sessions, password reset tokens, outbox.
 stress/      Load harness: 26,000 requests, then invariant checks against Redis and Mongo.
 tests/python/ Black-box contract tests (pytest) against the running API.
+postman/     Postman collection + local environment (pnpm test:postman runs it with newman).
 docs/
   architecture.md   diagram, request walkthrough, failure handling, measured scaling
   adr/              one record per major decision
   PRD.md            the original design spec
 .claude/agents/     subagents for parallel work, one per package plus a read-only verifier
-.claude/skills/     how-tos: ADRs, API changes, reading the databases, CodeGraph, style, git, stack
+.claude/skills/     how-tos: ADRs, API changes, reading the databases, CodeGraph, style, git, stack, frontend
+.claude/plugins/flash-sale-arief/  Claude plugin: investigate, app-server-mutation-testing, verify-and-log
 AGENTS.md           the same rules for non-Claude agents
+agent-os/           Agent OS: product mission and roadmap, standards, spec/task commands
+docs/superpowers/plans/  implementation plans for the work in this repo; .pi/plans/ for Pi
+.serena/, .mcp.json Serena code-navigation MCP server for this project (dashboard off)
+.husky/             pre-commit: lint-staged (eslint --fix); pre-push: typecheck + spec drift
+.vscode/, .tools/   debug configs and recommended extensions; mutation runs on changed packages only
 PERFORMANCE_REVIEW.md   hot path cost, measured numbers, knobs, next levers
 REPOSITORY_ANALYSIS.md  size, test coverage, risks and debt
 CLAUDE.md           how to work in this repo; each package has its own CLAUDE.md too
@@ -103,7 +110,7 @@ CLAUDE.md           how to work in this repo; each package has its own CLAUDE.md
 - Forgot password emails a link that works once and expires in 30 minutes. There's no mail provider in this demo: email lands in an outbox collection, readable with `pnpm cli outbox` (the brief allows mocking cloud services). Swapping in SES or SendGrid replaces one function.
 
 **Storefront**
-- Marketplace-style product page: gallery, flash-sale bar with countdown, price with discount, stock meter, specs. Works down to phone width.
+- Product page in a blue and white theme (colors are tokens on `:root` in `apps/web/src/index.css`): gallery, flash-sale bar with countdown, price with discount, stock meter, specs. Works down to phone width.
 - SEO: title, meta description, canonical, Open Graph, schema.org Product JSON-LD with live availability, robots.txt; account pages are `noindex`.
 - Photos by LouisBlaut, CC BY-SA 4.0, via Wikimedia Commons, cropped; credited in the page footer and `apps/web/public/products/CREDITS.md`.
 
@@ -118,6 +125,11 @@ CLAUDE.md           how to work in this repo; each package has its own CLAUDE.md
 **Resilience**
 - Redis down: every route that needs it answers 503 in milliseconds, decided from the client's connection state before any command is sent; the product page still renders. Mongo down: 503 within 2 s instead of 30. The worker keeps longer retries so a short blip doesn't fill the DLQ.
 - A saturated process sheds requests with 503 + `retry-after` instead of slowing down for everyone. Shedding happens before the purchase gate, so a shed request never holds a unit. ADR 0011.
+- Graceful shutdown: on SIGTERM the API stops accepting, finishes in-flight requests, then closes the queue, Redis and Mongo; the worker finishes active jobs first. 10 s deadline, then exit 1. ADR 0012.
+
+**Diagnostics (off by default)**
+- `FREEZE_PROFILER=1`: saves a CPU profile of any 10 s window where the event loop stalled past `FREEZE_THRESHOLD_MS`. Local folder or S3; with `ANTHROPIC_API_KEY`, a short AI explanation beside it. [`apps/api/src/libs/freeze-profiler`](apps/api/src/libs/freeze-profiler/README.md)
+- `MEMORY_TRACKER=1`: live request objects per route at `GET /debug/memory`, to spot leaks after a stress run. [`apps/api/src/libs/memory-tracker`](apps/api/src/libs/memory-tracker/README.md). ADR 0013.
 
 ## API
 
@@ -173,6 +185,10 @@ All in `.env` (copy `.env.example`). Defaults work for local development.
 | `RATE_LIMIT_MAX` | 5 | Purchases per account per second |
 | `AUTH_RATE_LIMIT_MAX` | 10 | Log in / sign up / reset attempts per IP per minute |
 | `MAX_EVENT_LOOP_LAG_MS` | 200 | Shed requests with 503 past this event loop lag; 0 turns it off |
+| `FREEZE_PROFILER`, `FREEZE_THRESHOLD_MS` | off, 500 | Save CPU profiles of event loop stalls |
+| `FREEZE_PROFILE_DIR`, `FREEZE_PROFILE_S3_BUCKET` | `profiles`, unset | Where profiles go (S3 uses the standard AWS credentials) |
+| `ANTHROPIC_API_KEY` | unset | AI explanation of each captured freeze |
+| `MEMORY_TRACKER` | off | `GET /debug/memory` with live objects per route |
 | `AUTH_SECRET` | dev value | Signs sessions. Required (32+ chars) in production |
 | `WEB_URL` | http://localhost:5173 | Links in reset emails |
 | `COOKIE_SECURE` | on in production | Session cookie only over HTTPS |
@@ -184,12 +200,13 @@ All in `.env` (copy `.env.example`). Defaults work for local development.
 
 | Layer | Command | What it proves | Count |
 |---|---|---|---|
-| Unit | `pnpm test` | Gate logic, auth (tokens, hashing, forged and expired sessions), idempotency keys, CLI commands and validation, React pages and components | 267 |
+| Unit | `pnpm test` | Gate logic, auth (tokens, hashing, forged and expired sessions), idempotency keys, CLI commands and validation, React pages and components | 297 |
 | Property-based | part of `pnpm test` | fast-check runs hundreds of random purchase/release sequences and concurrent bursts against a plain reference model of the rules | 7 properties |
-| Integration | `pnpm test:integration` | Every endpoint and status code, idempotent retries and concurrent duplicates, real Redis and Mongo, the cluster entry point, a real BullMQ worker and DLQ, every CLI command | 136 |
+| Integration | `pnpm test:integration` | Every endpoint and status code, idempotent retries and concurrent duplicates, real Redis and Mongo, the cluster entry point, a real BullMQ worker and DLQ, every CLI command | 141 |
 | Mutation | `pnpm test:mutation` | Stryker changes the code (flip a `<`, drop a branch) and checks a test fails each time | 100% on core, api, worker, cli |
 | End-to-end | `pnpm test:e2e` | Real Chromium, real stack: buy flow, the race for the last unit, sign up, forgot and reset password, SEO tags, a hostile page failing to frame the shop | 11 |
 | Contract (Python) | `pnpm test:python` | pytest against the running API: every status code it sees must be in `openapi.yaml`, plus security headers and cache headers. Read only | 7 |
+| Postman | `pnpm test:postman` | The collection in `postman/` run by newman: every endpoint, cookie session carried between requests | 14 requests, 0 failures |
 | Lint | `pnpm lint` | ESLint 10 flat config (`eslint.config.mjs`), typescript-eslint, react-hooks | 0 problems |
 | Stress | `pnpm stress` | 26,000 requests across 3 scenarios, then invariant checks | 3 scenarios |
 
@@ -202,6 +219,7 @@ pnpm test:e2e
 
 python3 -m venv .venv && .venv/bin/pip install -r tests/python/requirements.txt   # one time
 pnpm test:python                         # needs a running API (pnpm dev) and pnpm cli seed
+pnpm test:postman                        # the Postman collection via newman, same running API
 ```
 
 The e2e suite logs in many times a minute from one IP, which is exactly what the auth rate limit is there to stop, hence the raised limit for that run.

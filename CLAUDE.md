@@ -9,7 +9,7 @@ Read before changing the purchase flow: `docs/architecture.md` (diagram, request
 | Path | Owns | Package CLAUDE.md |
 |---|---|---|
 | `packages/core` | The rules: Lua purchase gate, Redis keys, job options, orders, product, users, sessions, reset tokens, outbox. Shared by everything else. | yes |
-| `apps/api` | HTTP: Fastify routes (sale, purchase, auth, product), rate limits, load shedding, security headers, OpenAPI spec + Swagger UI at `/docs`, cluster entry point | yes |
+| `apps/api` | HTTP: Fastify routes (sale, purchase, auth, product), rate limits, load shedding, security headers, OpenAPI spec + Swagger UI at `/docs`, cluster entry point, graceful shutdown. `src/libs/`: freeze-profiler, memory-tracker, aws (S3), ai-agent (opt-in diagnostics) | yes |
 | `apps/worker` | Queue consumer that confirms orders into Mongo | yes |
 | `apps/cli` | `pnpm cli`: seed, clean up, accounts, outbox, DLQ replay, reconcile | yes |
 | `apps/web` | React storefront and account pages, Vitest component tests, Playwright e2e | yes |
@@ -33,6 +33,7 @@ pnpm test                     # unit + property-based (core, api, worker, cli, w
 pnpm test:integration         # api, worker, cli against real Redis + Mongo
 pnpm test:mutation            # Stryker on core, api, worker, cli. A few minutes. Break threshold 75, currently 100.
 pnpm test:e2e                 # Playwright. Needs `AUTH_RATE_LIMIT_MAX=1000 pnpm dev` running.
+pnpm test:postman             # Postman collection via newman. Needs a running API; buys one unit as the demo account.
 pnpm test:python              # pytest contract tests vs the running API. One time: python3 -m venv .venv && .venv/bin/pip install -r tests/python/requirements.txt
 pnpm stress                   # Needs api (RATE_LIMIT_MAX raised) + worker running. Wipes orders. See stress/README.md.
 pnpm --filter @flashsale/<core|api|worker|cli|web|stress> run <script>
@@ -44,7 +45,10 @@ pnpm --filter @flashsale/<core|api|worker|cli|web|stress> run <script>
 - `.claude/agents/`: one agent per package plus a read-only `verifier`.
 - `codegraph init -i .` (once) then `codegraph impact <symbol>` before changing anything in `packages/core`. `.codegraph/` is gitignored.
 - `AGENTS.md` repeats the rules for non-Claude agents. Change an invariant here, change it there too.
-- Plugins `superpowers` and `ponytail` are enabled in `.claude/settings.json`.
+- Plugins `superpowers` and `ponytail` are enabled in `.claude/settings.json`. This repo's own plugin, `.claude/plugins/flash-sale-arief` (skills: `investigate`, `app-server-mutation-testing`, `verify-and-log`), loads with `claude --plugin-dir .claude/plugins/flash-sale-arief`.
+- `agent-os/` holds the standards the skills point to, plus spec/task commands. Plans: `docs/superpowers/plans/` and `.pi/plans/`.
+- Serena (`.serena/`, `.mcp.json`) gives symbol-level navigation; its browser dashboard is off.
+- Git hooks (husky): pre-commit runs lint-staged (eslint --fix), pre-push runs typecheck and the docs spec drift check. Don't bypass them with `--no-verify`.
 
 After changing `packages/core`, rebuild it (`pnpm --filter @flashsale/core build`) before running anything that imports it. Consumers read the compiled `dist/`, so a stale build typechecks and runs against old code.
 
@@ -62,6 +66,8 @@ After changing `packages/core`, rebuild it (`pnpm --filter @flashsale/core build
 10. **Status codes are a contract** with the frontend and the docs (README API table, `apps/api/openapi.yaml`). Changing one means changing `apps/web/src/api.ts` and its tests in the same change.
 11. **Idempotency-Key on purchase:** claimed with `SET NX` before the gate runs, answer saved after, released only on 503. Never run the gate when the claim fails (answer 503). ADR 0010.
 12. **Shed before the gate, never after.** The load-shedding hook (`apps/api/src/load-shedding.ts`) answers 503 before any Redis call. No `commandTimeout` on the API's Redis client: a timed-out `EVALSHA` may already have reserved a unit. ADR 0011.
+13. **Every process closes what it opens on SIGTERM** through `gracefulShutdown` (core). A new connection, timer or sampler in `server.ts` or the worker's `index.ts` gets closed in that `close()`, in dependency order. ADR 0012.
+14. **Diagnostics stay off by default** (`FREEZE_PROFILER`, `MEMORY_TRACKER`, `ANTHROPIC_API_KEY`): no sampling, no `/debug/*` route, no network call unless the env var is set. ADR 0013.
 
 ## Testing rules
 

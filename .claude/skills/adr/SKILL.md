@@ -1,39 +1,28 @@
 ---
 name: adr
-description: Write an Architecture Decision Record in docs/adr/. Use when a change picks one approach over a real alternative (a library, a data store, a consistency trade-off, a failure-handling policy), or when the user asks for an ADR.
+description: Write, find, supersede or follow Architecture Decision Records in docs/adr/. Use when a change picks one approach over a real alternative (library, data store, consistency trade-off, failure policy), when someone asks "why did we choose X", or when the user asks for an ADR.
 ---
 
-# Writing an ADR
+# ADRs
 
-1. Next number: `ls docs/adr` and add one. Four digits, kebab-case title: `docs/adr/0012-short-title.md`.
-2. Use this shape and nothing more:
+Records live in `docs/adr/NNNN-kebab-title.md`, indexed in `docs/adr/README.md`. Current: 0001 to 0011.
 
-```markdown
-# ADR 0012: <decision as a short sentence>
+| Need | Read |
+|---|---|
+| The format | `template.md` |
+| Create, supersede, deprecate, update the index | `operations.md` |
+| Find the ADR for an area, or check a change against one | `queries.md` |
 
-Status: Accepted
-Date: <YYYY-MM-DD, today>
+## When to write one
 
-## Context
+- Choosing between real alternatives (Lua script vs lock, BullMQ vs SQS, Mongo vs Postgres).
+- Changing a failure policy or an invariant in `CLAUDE.md`.
+- Not for: bug fixes, refactors, renames, or anything with one obvious answer.
 
-What forced a decision. Name the concrete problem, number, or failure.
+## Rules
 
-## Decision
-
-What we do. Bullets for the moving parts. Name files, keys, env vars, status codes.
-
-## Consequences
-
-What this costs and what it buys. Include what we chose not to build and why.
-```
-
-3. Add a line to `docs/adr/README.md`, in order.
-4. Link it from where people will look: the relevant section of `docs/architecture.md`, the root `CLAUDE.md` invariant if it creates one, and `apps/docs` if it changes behavior users see.
-
-Rules:
-- One decision per ADR. Superseding one: new ADR, set the old one's status to `Superseded by ADR 00NN`.
-- Every number in it comes from a real run (stress, benchmark, test count).
-- No em dashes; tech-lead tone (see `global-coding-style`).
+- One decision per ADR. Numbers come from a real run. No em dashes; tech-lead tone.
 - Owner is Arief Fitranto unless told otherwise.
+- Code that contradicts an accepted ADR is a bug or needs a new ADR; don't drift silently.
 
-Examples worth copying: `0001` (lock vs Lua), `0010` (idempotency keys), `0011` (fail fast and load shedding).
+Good examples: `0001` (lock vs Lua), `0010` (idempotency keys), `0011` (fail fast and load shedding).

@@ -1,0 +1,28 @@
+# Serena project config (https://github.com/oraios/serena).
+# Symbol-level navigation and edits over the TypeScript language server.
+# The MCP server is registered in /.mcp.json with the web dashboard and the
+# GUI log window turned off, so starting it never opens a browser.
+project_name: "flashsale"
+encoding: "utf-8"
+
+language_servers:
+- typescript
+ls_workspace_folders:
+- .
+
+# Respect .gitignore (dist/, .stryker-tmp/, .codegraph/, node_modules, ...).
+ignore_all_files_in_gitignore: true
+ignored_paths:
+- "**/dist/**"
+- "**/.stryker-tmp/**"
+- "**/reports/**"
+- "apps/docs/images/**"
+
+read_only: false
+excluded_tools: []
+included_optional_tools: []
+
+initial_prompt: |
+  Arief Shop flash sale monorepo. Read CLAUDE.md first: the purchase decision is one
+  Redis Lua script (packages/core/src/lua-scripts.ts) and POST /api/purchase never
+  touches MongoDB. Rebuild packages/core after editing it.

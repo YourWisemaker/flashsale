@@ -1,8 +1,14 @@
 import cluster from "node:cluster";
-import { connectMongo, createQueueConnection, createRedisClient, createSessionTokens, SaleGate } from "@flashsale/core";
+import { connectMongo, createQueueConnection, createRedisClient, createSessionTokens, gracefulShutdown, SaleGate } from "@flashsale/core";
 import { buildApp } from "./app.js";
 import { loadConfig } from "./config.js";
+import { createAiAgent } from "./libs/ai-agent/index.js";
+import { createS3Store } from "./libs/aws/index.js";
+import { createDirStore, startFreezeProfiler } from "./libs/freeze-profiler/index.js";
+import { MemoryTracker } from "./libs/memory-tracker/index.js";
 import { createOrderQueue } from "./queue.js";
+import { Session } from "node:inspector/promises";
+import { monitorEventLoopDelay } from "node:perf_hooks";
 
 const config = loadConfig(process.env);
 
@@ -12,8 +18,9 @@ async function startInstance() {
   // selection). API only: the worker keeps the patient defaults so a short
   // blip doesn't push jobs to the DLQ.
   const redis = createRedisClient(config.redisUrl, { maxRetriesPerRequest: 1 });
-  const { db } = await connectMongo(config.mongoUrl, { serverSelectionTimeoutMS: 2000 });
-  const queue = createOrderQueue(createQueueConnection(config.redisUrl));
+  const { client: mongo, db } = await connectMongo(config.mongoUrl, { serverSelectionTimeoutMS: 2000 });
+  const queueConnection = createQueueConnection(config.redisUrl);
+  const queue = createOrderQueue(queueConnection);
   const saleGate = new SaleGate(redis);
 
   const app = await buildApp({
@@ -27,9 +34,35 @@ async function startInstance() {
     webUrl: config.webUrl,
     cookieSecure: config.cookieSecure,
     maxEventLoopLagMs: config.maxEventLoopLagMs,
+    memoryTracker: config.memoryTracker ? new MemoryTracker() : undefined,
   });
 
   await app.listen({ port: config.port, host: "0.0.0.0" });
+
+  const stopProfiler = config.freezeProfiler.enabled ? await startProfiler(app.log.info.bind(app.log)) : async () => undefined;
+
+  // Stop taking new connections, let in-flight requests finish (Fastify
+  // answers 503 to anything arriving meanwhile), then close what they used.
+  // Order matters: a purchase still running needs Redis and the queue.
+  gracefulShutdown(async () => {
+    await stopProfiler();
+    await app.close();
+    await queue.close();
+    await Promise.all([queueConnection.quit(), redis.quit(), mongo.close()]);
+  });
+}
+
+function startProfiler(log: (message: string) => void) {
+  const { thresholdMs, dir, s3Bucket } = config.freezeProfiler;
+  return startFreezeProfiler({
+    session: new Session(),
+    histogram: monitorEventLoopDelay({ resolution: 10 }),
+    store: s3Bucket ? createS3Store(s3Bucket) : createDirStore(dir),
+    agent: config.anthropicApiKey ? createAiAgent(config.anthropicApiKey) : undefined,
+    thresholdMs,
+    rollMs: 10_000,
+    log,
+  });
 }
 
 /**
@@ -47,8 +80,10 @@ async function startInstance() {
  */
 function startCluster() {
   const serving = new Set<number>();
+  let stopping = false;
   cluster.on("listening", (worker) => serving.add(worker.id));
   cluster.on("exit", (worker, code) => {
+    if (stopping) return;
     if (!serving.delete(worker.id)) {
       console.error(`api process ${worker.process.pid} failed during startup (${code}), shutting the cluster down`);
       process.exit(1);
@@ -57,6 +92,19 @@ function startCluster() {
     cluster.fork();
   });
   for (let i = 0; i < config.apiProcesses; i++) cluster.fork();
+
+  // Each child drains itself on SIGTERM; the primary stops replacing them
+  // and exits once they're all gone.
+  gracefulShutdown(async () => {
+    stopping = true;
+    const children = Object.values(cluster.workers ?? {}).filter((child) => child !== undefined);
+    await Promise.all(
+      children.map((child) => new Promise<void>((resolve) => {
+        child.once("exit", () => resolve());
+        child.process.kill("SIGTERM");
+      })),
+    );
+  });
 }
 
 const run = config.apiProcesses > 1 && cluster.isPrimary ? async () => startCluster() : startInstance;

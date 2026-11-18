@@ -55,6 +55,8 @@ Locally the load balancer box isn't run; `API_PROCESSES=N` gives N API processes
 
 **Fail fast and load shedding.** One app-level hook runs before everything else: while the Redis connection isn't ready it answers 503 without sending a command (the product route is exempt), and while event loop lag is past `MAX_EVENT_LOOP_LAG_MS` it answers 503 with `retry-after: 1`. The API's Redis client gives up after one reconnect attempt and its Mongo client after 2 s, so an outage costs users a quick error instead of a hang. `GET /api/sale` sends `s-maxage=1` so a CDN can collapse polling to one read per second per edge. See ADR 0011.
 
+**Shutdown and diagnostics.** On SIGTERM each process drains through `gracefulShutdown` (core): the API finishes in-flight requests before closing the queue, Redis and Mongo; the worker finishes active jobs (ADR 0012). Two opt-in aids live in `apps/api/src/libs/`: a freeze profiler that saves CPU profiles of event loop stalls (to disk or S3, optionally with a Claude-written explanation) and a memory tracker at `GET /debug/memory` (ADR 0013).
+
 ## Request walkthrough
 
 1. User clicks "Buy Now." Frontend posts to `POST /api/purchase`; the browser sends the session cookie.
