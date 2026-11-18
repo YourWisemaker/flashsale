@@ -23,6 +23,10 @@ const productionCsp =
 export default defineConfig(({ mode }) => {
   // Root .env holds VITE_SITE_URL (used in index.html for canonical/og URLs).
   const env = loadEnv(mode, "../..", "");
+  // Same default as .env.example, so a build without .env still works:
+  // an unset %VITE_SITE_URL% would leave a raw placeholder in index.html
+  // and fail the build with "URI malformed".
+  process.env.VITE_SITE_URL ??= env.VITE_SITE_URL || "http://localhost:5173";
   const apiUrl = env.VITE_API_URL ?? "http://localhost:3000";
   const proxy = { "/api": apiUrl, "/health": apiUrl };
 
