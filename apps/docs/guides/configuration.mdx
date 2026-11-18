@@ -23,4 +23,7 @@ All in `.env` (copy `.env.example`). Defaults work for local development.
 | `COOKIE_SECURE` | on in production | Session cookie only over HTTPS |
 | `WORKER_CONCURRENCY` | 10 | Jobs per worker process |
 | `VITE_SITE_URL` | http://localhost:5173 | Canonical and Open Graph URLs |
+| `NODE_ENV` | unset | `production` requires a real `AUTH_SECRET` and turns on secure cookies |
+| `VITE_API_URL` | http://localhost:3000 | Where the web dev server proxies `/api` |
+| `STRESS_API_URL`, `STRESS_CONCURRENCY` | http://localhost:3000, 300 | Stress harness target and in-flight requests |
 | `TEST_REDIS_URL`, `TEST_MONGO_URL` | localhost | Point the test suites at other infra (parallel agents, CI) |

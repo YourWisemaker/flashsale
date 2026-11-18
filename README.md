@@ -20,7 +20,7 @@ Needs Node 20+, pnpm, and Redis + MongoDB (Docker or local installs).
 
 ```bash
 docker compose up -d        # Redis + MongoDB (or run redis-server / mongod yourself)
-cp .env.example .env        # working defaults for local development
+cp .env.example .env        # optional: every setting has a working local default
 pnpm install                # also installs the git hooks (husky)
 pnpm build                  # builds packages/core first; the apps import its compiled output
 pnpm cli seed               # indexes, product, sale window (starts in 1 minute), demo account
@@ -28,6 +28,19 @@ pnpm dev                    # API :3000, worker, web :5173
 ```
 
 Open http://localhost:5173 and log in with the test account. To start the sale right now instead of in a minute: `pnpm cli seed --force --start now --minutes 60`.
+
+## Requirements at a glance
+
+| Requirement | Where it's met |
+|---|---|
+| Configurable sale window, purchases only inside it | `purchase.lua` checks start and end against Redis's clock; set with `pnpm cli seed --start/--end` or `SALE_START`/`SALE_END` |
+| One product, limited stock, never oversold | One atomic Lua script per attempt; stress runs end with exactly `totalStock` confirmed orders |
+| One unit per user | Same script records the buyer; job id, unique index and `Idempotency-Key` stop duplicate orders |
+| Status, purchase, "did I get one" endpoints | `GET /api/sale`, `POST /api/purchase`, `GET /api/purchase/me` (see API) |
+| Frontend: status, user identifier, Buy Now, outcome feedback | React storefront; the identifier is the account email you log in with ([ADR 0009](docs/adr/0009-accounts-and-sessions.md) says why) |
+| System diagram | Below, and in [`docs/architecture.md`](docs/architecture.md) |
+| Throughput, scalability, fault tolerance | Stateless API cluster, async order queue, load shedding, fail-fast on outages, DLQ, graceful shutdown (Scaling, Trade-offs) |
+| Unit, integration and stress tests | See Tests and Stress tests; results explained in [`stress/README.md`](stress/README.md) |
 
 ## How it works
 
@@ -148,6 +161,7 @@ CLAUDE.md           how to work in this repo; each package has its own CLAUDE.md
 | POST | `/api/auth/reset` | no | `{ token, password }` → 200 and a session cookie; 400 invalid or expired link |
 | GET | `/health` | no | 200 when Redis and Mongo respond, else 503 |
 | GET | `/docs` | no | Swagger UI for this table, from `apps/api/openapi.yaml` |
+| GET | `/debug/memory` | no | Only with `MEMORY_TRACKER=1` (404 otherwise): live request objects per route and process memory |
 
 Any route except `/api/product` answers 503 `unavailable` at once while Redis is unreachable, and 503 with `retry-after: 1` while the process is saturated (event loop lag past `MAX_EVENT_LOOP_LAG_MS`). Every response carries the anti-clickjacking and `nosniff` headers. Errors are `{ error, message }`, with `message` meant for people.
 
@@ -195,6 +209,9 @@ All in `.env` (copy `.env.example`). Defaults work for local development.
 | `COOKIE_SECURE` | on in production | Session cookie only over HTTPS |
 | `WORKER_CONCURRENCY` | 10 | Jobs per worker process |
 | `VITE_SITE_URL` | http://localhost:5173 | Canonical and Open Graph URLs |
+| `NODE_ENV` | unset | `production` requires a real `AUTH_SECRET` and turns on secure cookies |
+| `VITE_API_URL` | http://localhost:3000 | Where the web dev server proxies `/api` |
+| `STRESS_API_URL`, `STRESS_CONCURRENCY` | http://localhost:3000, 300 | Stress harness target and in-flight requests |
 | `TEST_REDIS_URL`, `TEST_MONGO_URL` | localhost | Point the test suites at other infra (parallel agents, CI) |
 
 ## Tests
