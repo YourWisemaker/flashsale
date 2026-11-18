@@ -40,7 +40,7 @@ No source file passes 130 lines. The largest are `apps/web/src/api.ts` (125), `p
 
 | Layer | Count | Status |
 |---|---|---|
-| Unit + property (Vitest, fast-check) | 297 | green |
+| Unit + property (Vitest, fast-check) | 285 | green |
 | Integration (real Redis + Mongo) | 141 | green |
 | Mutation (Stryker) | core, api, worker, cli | 100% |
 | End-to-end (Playwright) | 11 | green |

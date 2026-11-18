@@ -5,7 +5,7 @@ export type Tone = "info" | "success" | "warning" | "error";
 /** Every message the buyer can see after clicking Buy Now, in one table. */
 export const PURCHASE_MESSAGES: Record<PurchaseStatus | "confirmed", { text: string; tone: Tone }> = {
   pending: { text: "Purchase received, confirming...", tone: "info" },
-  confirmed: { text: "You got one! Order confirmed.", tone: "success" },
+  confirmed: { text: "Success! You bought one. Your order is confirmed.", tone: "success" },
   already_purchased: { text: "You already secured one. One per person.", tone: "info" },
   sold_out: { text: "Sold out. Better luck next time.", tone: "warning" },
   upcoming: { text: "The sale hasn't started yet.", tone: "warning" },

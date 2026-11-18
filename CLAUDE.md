@@ -9,7 +9,7 @@ Read before changing the purchase flow: `docs/architecture.md` (diagram, request
 | Path | Owns | Package CLAUDE.md |
 |---|---|---|
 | `packages/core` | The rules: Lua purchase gate, Redis keys, job options, orders, product, users, sessions, reset tokens, outbox. Shared by everything else. | yes |
-| `apps/api` | HTTP: Fastify routes (sale, purchase, auth, product), rate limits, load shedding, security headers, OpenAPI spec + Swagger UI at `/docs`, cluster entry point, graceful shutdown. `src/libs/`: freeze-profiler, memory-tracker, aws (S3), ai-agent (opt-in diagnostics) | yes |
+| `apps/api` | HTTP: Fastify routes (sale, purchase, auth, product), rate limits, load shedding, security headers, OpenAPI spec + Swagger UI at `/docs`, cluster entry point, graceful shutdown. `src/libs/memory-tracker` (opt-in diagnostics) | yes |
 | `apps/worker` | Queue consumer that confirms orders into Mongo | yes |
 | `apps/cli` | `pnpm cli`: seed, clean up, accounts, outbox, DLQ replay, reconcile | yes |
 | `apps/web` | React storefront and account pages, Vitest component tests, Playwright e2e | yes |
@@ -67,7 +67,7 @@ After changing `packages/core`, rebuild it (`pnpm --filter @flashsale/core build
 11. **Idempotency-Key on purchase:** claimed with `SET NX` before the gate runs, answer saved after, released only on 503. Never run the gate when the claim fails (answer 503). ADR 0010.
 12. **Shed before the gate, never after.** The load-shedding hook (`apps/api/src/load-shedding.ts`) answers 503 before any Redis call. No `commandTimeout` on the API's Redis client: a timed-out `EVALSHA` may already have reserved a unit. ADR 0011.
 13. **Every process closes what it opens on SIGTERM** through `gracefulShutdown` (core). A new connection, timer or sampler in `server.ts` or the worker's `index.ts` gets closed in that `close()`, in dependency order. ADR 0012.
-14. **Diagnostics stay off by default** (`FREEZE_PROFILER`, `MEMORY_TRACKER`, `ANTHROPIC_API_KEY`): no sampling, no `/debug/*` route, no network call unless the env var is set. ADR 0013.
+14. **Diagnostics stay off by default** (`MEMORY_TRACKER`): no `/debug/*` route unless the env var is set. ADR 0013.
 
 ## Testing rules
 

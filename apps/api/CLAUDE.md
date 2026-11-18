@@ -10,7 +10,7 @@ Fastify HTTP layer. No business rules here: purchase decisions come from `SaleGa
 - `routes/product.ts`: display data, 60 s in-process cache (never caches a 404). Never read on the purchase path.
 - `load-shedding.ts`: app-level `onRequest` hook. 503 while Redis isn't ready (product exempt), 503 + `retry-after` past `MAX_EVENT_LOOP_LAG_MS`. Runs before route hooks, so before the rate limiter and the gate.
 - `server.ts`: entry point and `API_PROCESSES` cluster. Startup failure exits the cluster; a serving crash gets replaced. SIGTERM drains through `gracefulShutdown` (children drain themselves; the primary waits).
-- `libs/`: opt-in diagnostics, each with a README. `freeze-profiler` (CPU profile on event loop stalls), `memory-tracker` (`GET /debug/memory`, only registered when on), `aws` (S3 store), `ai-agent` (Claude explanation of a capture). All dependencies injected; tests use fakes.
+- `libs/memory-tracker`: opt-in diagnostics (`MEMORY_TRACKER=1`), `GET /debug/memory`, only registered when on. Has its own README, USAGE and SUMMARY.
 - `config.ts`: refuses to start in production without a real `AUTH_SECRET`.
 
 Seeding and ops live in `apps/cli`, not here.

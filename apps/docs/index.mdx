@@ -14,6 +14,10 @@ A Fastify API, a BullMQ worker and a React storefront, with Redis on the hot pat
 - **No duplicate orders.** The buyer set, a fixed queue job id per account and a unique Mongo index each stop a second order on their own.
 - **Fast failure.** Redis down means a 503 in milliseconds. A saturated process sheds load before the purchase gate runs.
 
+<Frame caption="After a successful purchase.">
+  <img src="/images/flows/05-confirmed.jpg" alt="Order confirmed" />
+</Frame>
+
 <CardGroup cols={2}>
   <Card title="Quickstart" icon="rocket" href="/quickstart">Run the stack locally and buy the demo product.</Card>
   <Card title="The flow" icon="images" href="/flows">Every important screen, captured against the real stack.</Card>

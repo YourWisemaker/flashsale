@@ -10,7 +10,7 @@ Deploys and autoscaling stop processes with SIGTERM. Before this, the API had no
 ## Decision
 
 - One helper, `gracefulShutdown(close, deps)` in `packages/core/src/shutdown.ts`: runs `close` once on SIGTERM or SIGINT, exits 0, exits 1 if `close` throws or takes longer than 10 s. A second signal during the drain is ignored.
-- API process: stop the freeze profiler, `app.close()` (stops accepting, waits for in-flight requests, answers 503 to anything arriving meanwhile), then the queue, then Redis and Mongo.
+- API process: `app.close()` (stops accepting, waits for in-flight requests, answers 503 to anything arriving meanwhile), then the queue, then Redis and Mongo.
 - Cluster primary: stops replacing children, sends each SIGTERM, exits when all have exited.
 - Worker: `worker.close()` waits for active jobs, then Redis and Mongo close. A job that outlives the deadline isn't lost: its lock expires and another worker retries it (the upsert makes that safe).
 

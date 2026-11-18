@@ -61,6 +61,21 @@ flowchart TD
 
 The full writeup, with a request walkthrough, failure handling, and measured scaling, is in [`docs/architecture.md`](docs/architecture.md). Each major decision has an ADR in [`docs/adr/`](docs/adr/README.md).
 
+## The frontend, requirement by requirement
+
+| The frontend lets a user... | How | Screenshot |
+|---|---|---|
+| See the current status of the sale | Flash-sale bar: Starts soon / Live now / Sold out / Ended, with a countdown and stock left; refreshed every 2 s | 1, 7, 11, 12 |
+| Enter a user identifier | Log in with an email (and password), so "one per user" means one per real account | 2 |
+| Click Buy Now | The button under "Buying as <email>" | 3 |
+| Learn the purchase succeeded | "Success! You bought one. Your order is confirmed." The button turns grey and reads Purchased | 4, 5 |
+| Learn they already bought | "You already secured one. One per person.", also shown when they come back later | 6 |
+| Learn the sale ended or sold out | "Sold out. Better luck next time." / "The sale has ended.", Buy Now disabled | 7, 12 |
+
+**Order successful:**
+
+![Order confirmed: success message and a disabled Purchased button](apps/docs/images/flows/05-confirmed.jpg)
+
 ## The flow
 
 Captured in a real browser against the running stack.
@@ -69,9 +84,10 @@ Captured in a real browser against the running stack.
 |---|---|
 | ![Logged out](apps/docs/images/flows/01-logged-out.jpg) **1. Logged out.** The sale is live; buying needs an account. | ![Log in](apps/docs/images/flows/02-login.jpg) **2. Log in.** |
 | ![Logged in](apps/docs/images/flows/03-logged-in.jpg) **3. Logged in.** "Buying as" shows who the purchase is for. | ![Pending](apps/docs/images/flows/04-pending.jpg) **4. Pending.** The unit is reserved in Redis; the worker hasn't confirmed it yet. |
-| ![Confirmed](apps/docs/images/flows/05-confirmed.jpg) **5. Confirmed.** Stock drops to 99. | ![Already purchased](apps/docs/images/flows/06-already-purchased.jpg) **6. Second click.** One per account. |
+| ![Confirmed](apps/docs/images/flows/05-confirmed.jpg) **5. Confirmed.** Success message, stock drops to 99, the button turns into a disabled Purchased. | ![Already purchased](apps/docs/images/flows/06-already-purchased.jpg) **6. Coming back.** The page already knows: one per account. |
 | ![Sold out](apps/docs/images/flows/07-sold-out.jpg) **7. Sold out.** The button disables and the page says why. | ![Register](apps/docs/images/flows/08-register.jpg) **8. Sign up.** |
 | ![Forgot password](apps/docs/images/flows/09-forgot-password.jpg) **9. Forgot password.** Same answer whether or not the email has an account. | ![Reset password](apps/docs/images/flows/10-reset-password.jpg) **10. Reset password**, from the emailed one-time link. |
+| ![Upcoming](apps/docs/images/flows/11-upcoming.jpg) **11. Upcoming.** Countdown to the start; Buy Now disabled. | ![Ended](apps/docs/images/flows/12-ended.jpg) **12. Ended.** The page says so; Buy Now disabled. |
 
 On a phone it stacks into one column (third screenshot at the top).
 
@@ -142,7 +158,6 @@ CLAUDE.md           how to work in this repo; each package has its own CLAUDE.md
 - Graceful shutdown: on SIGTERM the API stops accepting, finishes in-flight requests, then closes the queue, Redis and Mongo; the worker finishes active jobs first. 10 s deadline, then exit 1. ADR 0012.
 
 **Diagnostics (off by default)**
-- `FREEZE_PROFILER=1`: saves a CPU profile of any 10 s window where the event loop stalled past `FREEZE_THRESHOLD_MS`. Local folder or S3; with `ANTHROPIC_API_KEY`, a short AI explanation beside it. [`apps/api/src/libs/freeze-profiler`](apps/api/src/libs/freeze-profiler/README.md)
 - `MEMORY_TRACKER=1`: live request objects per route at `GET /debug/memory`, to spot leaks after a stress run. [`apps/api/src/libs/memory-tracker`](apps/api/src/libs/memory-tracker/README.md). ADR 0013.
 
 ## API
@@ -200,9 +215,6 @@ All in `.env` (copy `.env.example`). Defaults work for local development.
 | `RATE_LIMIT_MAX` | 5 | Purchases per account per second |
 | `AUTH_RATE_LIMIT_MAX` | 10 | Log in / sign up / reset attempts per IP per minute |
 | `MAX_EVENT_LOOP_LAG_MS` | 200 | Shed requests with 503 past this event loop lag; 0 turns it off |
-| `FREEZE_PROFILER`, `FREEZE_THRESHOLD_MS` | off, 500 | Save CPU profiles of event loop stalls |
-| `FREEZE_PROFILE_DIR`, `FREEZE_PROFILE_S3_BUCKET` | `profiles`, unset | Where profiles go (S3 uses the standard AWS credentials) |
-| `ANTHROPIC_API_KEY` | unset | AI explanation of each captured freeze |
 | `MEMORY_TRACKER` | off | `GET /debug/memory` with live objects per route |
 | `AUTH_SECRET` | dev value | Signs sessions. Required (32+ chars) in production |
 | `WEB_URL` | http://localhost:5173 | Links in reset emails |
@@ -218,7 +230,7 @@ All in `.env` (copy `.env.example`). Defaults work for local development.
 
 | Layer | Command | What it proves | Count |
 |---|---|---|---|
-| Unit | `pnpm test` | Gate logic, auth (tokens, hashing, forged and expired sessions), idempotency keys, CLI commands and validation, React pages and components | 297 |
+| Unit | `pnpm test` | Gate logic, auth (tokens, hashing, forged and expired sessions), idempotency keys, CLI commands and validation, React pages and components | 285 |
 | Property-based | part of `pnpm test` | fast-check runs hundreds of random purchase/release sequences and concurrent bursts against a plain reference model of the rules | 7 properties |
 | Integration | `pnpm test:integration` | Every endpoint and status code, idempotent retries and concurrent duplicates, real Redis and Mongo, the cluster entry point, a real BullMQ worker and DLQ, every CLI command | 141 |
 | Mutation | `pnpm test:mutation` | Stryker changes the code (flip a `<`, drop a branch) and checks a test fails each time | 100% on core, api, worker, cli |
@@ -281,7 +293,30 @@ The API and worker hold no state, so both scale by running more processes. Measu
 | 2 | 52,700 | 3 ms |
 | 4 | 42,300 | 4 ms |
 
-Past two processes the shared Redis and the CPU the load generator also needs become the limit (424,000 Redis ops/s, about 10 per purchase). Next steps, cheapest first: rate limit at the load balancer, give Redis its own host, then Redis Cluster. A crashed API process is replaced (killed one with `-9` under traffic: 40 of 40 requests still returned 200); one that fails at startup stops the cluster instead of fork-looping. Details in [`docs/architecture.md`](docs/architecture.md).
+Past two processes the shared Redis and the CPU the load generator also needs become the limit (424,000 Redis ops/s, about 10 per purchase). Next steps, cheapest first: rate limit at the load balancer, give Redis its own host, then Redis Cluster. A crashed API process is replaced (killed one with `-9` under traffic: 40 of 40 requests still returned 200); one that fails at startup stops the cluster instead of fork-looping. Details in [`docs/architecture.md`](docs/architecture.md) and [`PERFORMANCE_REVIEW.md`](PERFORMANCE_REVIEW.md).
+
+### How it scales further
+
+| Layer | Today (local) | Scale-out path |
+|---|---|---|
+| API | `API_PROCESSES=N` on one host | Same image in N containers behind a load balancer; no sticky sessions needed (session is a signed cookie, state is in Redis) |
+| Worker | Start more processes | More containers; BullMQ hands each job to one worker. Order writes are paced by `WORKER_CONCURRENCY`, not by traffic |
+| Redis | One local instance | Own host first, then Redis Cluster with the three sale keys in one `{sale}` hash slot. Past one shard: split stock into N buckets, route users by hash |
+| MongoDB | One local instance | Replica set; `orders` is keyed by `userId` and shards cleanly |
+| Static web + status reads | Vite preview | CDN for the built assets; `GET /api/sale` already sends `s-maxage=1`, so an edge collapses polling to one read per second |
+
+### Before running this in production
+
+This repo runs everything locally (the brief allows that). For a real launch:
+
+1. **Managed Redis with a replica and failover**, AOF on. It's the purchase gate, the queue and the rate limiter, so it's the single point of failure today.
+2. **MongoDB replica set** (or Atlas) for the durable order record.
+3. **Rate limiting at the gateway or load balancer** as well as in the API: stops abuse before it costs a Redis call, and removes about half the Redis work per purchase.
+4. **Secrets and HTTPS**: a real `AUTH_SECRET` (the API refuses to start without one when `NODE_ENV=production`), TLS at the edge, secure cookies (on automatically in production).
+5. **Serve the web build with the same security headers** the dev server sends (`X-Frame-Options: DENY`, CSP with `frame-ancestors 'none'`): they can't be set from HTML.
+6. **Real email** in place of the outbox collection (one function to swap for SES or SendGrid).
+7. **Pre-scale before the sale opens** rather than autoscaling into the spike, and give the orchestrator a grace period of at least 10 s so graceful shutdown can drain (ADR 0012).
+8. **Observability**: ship the JSON logs, alert on 503 rate, DLQ size (`bull:orders:failed`) and the gap between Redis buyers and Mongo orders; run `pnpm cli reconcile` only after looking at that gap.
 
 ## Trade-offs
 

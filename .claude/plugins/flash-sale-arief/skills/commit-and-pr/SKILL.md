@@ -23,10 +23,10 @@ git status --short
 git add <paths>          # or git add -A after reading the status
 ```
 
-Never staged: `docs/brief.md`, `.env`, `.venv/`, `.codegraph/`, `profiles/`, `reports/`, `.stryker-tmp/`, Playwright output, real secrets. Check:
+Never staged: `docs/brief.md`, `.env`, `.venv/`, `.codegraph/`, `reports/`, `.stryker-tmp/`, Playwright output, real secrets. Check:
 
 ```bash
-git status --short | grep -E "brief|\.env$|venv|codegraph|profiles/|reports/|stryker"
+git status --short | grep -E "brief|\.env$|venv|codegraph|reports/|stryker"
 git grep --cached -n -I -e $'\u2014' -- . ':!docs/brief.md'   # no em dashes in tracked text
 ```
 
@@ -37,7 +37,7 @@ Both must print nothing.
 Match the history (`git log --oneline -5`): one summary line naming what changed, comma separated, no trailing period.
 
 ```
-Graceful shutdown, freeze profiler, Postman collection
+Graceful shutdown, memory tracker, Postman collection
 ```
 
 Body when the why isn't obvious: short paragraphs, plain sentences, concrete names (file, env var, ADR number). No em dashes, no marketing words, no bold-label bullets. Add attribution lines only if the session's instructions ask for them.

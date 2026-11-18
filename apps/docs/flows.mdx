@@ -3,6 +3,14 @@ title: The flow
 description: The important screens, captured in a real browser against the running stack.
 ---
 
+## Order successful
+
+<Frame caption="After a successful purchase: the success message, stock down by one, and a disabled Purchased button.">
+  <img src="/images/flows/05-confirmed.jpg" alt="Order confirmed" />
+</Frame>
+
+## Every screen
+
 <Columns cols={2}>
   <Frame caption="1. Logged out. The sale is live; buying needs an account.">
     <img src="/images/flows/01-logged-out.jpg" alt="Logged out" />
@@ -16,10 +24,10 @@ description: The important screens, captured in a real browser against the runni
   <Frame caption="4. Pending. The unit is reserved in Redis; the worker hasn't confirmed it yet.">
     <img src="/images/flows/04-pending.jpg" alt="Pending" />
   </Frame>
-  <Frame caption="5. Confirmed. Stock drops to 99.">
+  <Frame caption="5. Confirmed. Success message, stock drops to 99, and Buy Now becomes a disabled Purchased.">
     <img src="/images/flows/05-confirmed.jpg" alt="Confirmed" />
   </Frame>
-  <Frame caption="6. Second click. One per account.">
+  <Frame caption="6. Coming back later: the page already knows this account bought one.">
     <img src="/images/flows/06-already-purchased.jpg" alt="Already purchased" />
   </Frame>
   <Frame caption="7. Sold out. The button disables and the page says why.">
@@ -33,6 +41,12 @@ description: The important screens, captured in a real browser against the runni
   </Frame>
   <Frame caption="10. Reset password, from the emailed one-time link.">
     <img src="/images/flows/10-reset-password.jpg" alt="Reset password" />
+  </Frame>
+  <Frame caption="11. Upcoming. Countdown to the start; Buy Now disabled.">
+    <img src="/images/flows/11-upcoming.jpg" alt="Upcoming sale" />
+  </Frame>
+  <Frame caption="12. Ended. The page says so; Buy Now disabled.">
+    <img src="/images/flows/12-ended.jpg" alt="Ended sale" />
   </Frame>
 </Columns>
 

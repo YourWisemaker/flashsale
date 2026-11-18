@@ -14,4 +14,4 @@ Short records of the decisions that would otherwise only live in a reviewer's he
 - [0010: Idempotency keys for safe purchase retries](0010-idempotency-keys.md)
 - [0011: Fail fast on outages, shed load on saturation](0011-fail-fast-and-load-shedding.md)
 - [0012: Graceful shutdown on SIGTERM](0012-graceful-shutdown.md)
-- [0013: Opt-in diagnostics: freeze profiler and memory tracker](0013-opt-in-diagnostics.md)
+- [0013: Opt-in memory tracker](0013-opt-in-diagnostics.md)

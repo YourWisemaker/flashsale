@@ -7,11 +7,13 @@ interface BuyBoxProps {
   saleOpen: boolean;
   submitting: boolean;
   pending: boolean;
+  /** This account already holds a unit (confirmed, or the server said already purchased). */
+  owned: boolean;
   outcome: keyof typeof PURCHASE_MESSAGES | null;
   onBuy: () => void;
 }
 
-export function BuyBox({ user, saleOpen, submitting, pending, outcome, onBuy }: BuyBoxProps) {
+export function BuyBox({ user, saleOpen, submitting, pending, owned, outcome, onBuy }: BuyBoxProps) {
   if (user === null) {
     return (
       <div className="buy">
@@ -27,7 +29,7 @@ export function BuyBox({ user, saleOpen, submitting, pending, outcome, onBuy }: 
   }
 
   const message = outcome ? PURCHASE_MESSAGES[outcome] : null;
-  const disabled = !user || !saleOpen || submitting || pending;
+  const disabled = !user || !saleOpen || submitting || pending || owned;
 
   return (
     <div className="buy">
@@ -37,7 +39,7 @@ export function BuyBox({ user, saleOpen, submitting, pending, outcome, onBuy }: 
         </p>
       )}
       <button type="button" className="buy__button" disabled={disabled} onClick={onBuy}>
-        {submitting ? "Submitting..." : "Buy Now"}
+        {submitting ? "Submitting..." : owned ? "Purchased" : "Buy Now"}
       </button>
       <p className={`buy__message buy__message--${message?.tone ?? "none"}`} role="status" aria-live="polite">
         {message?.text}

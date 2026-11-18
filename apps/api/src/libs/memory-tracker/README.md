@@ -14,4 +14,4 @@ Files:
 - [`USAGE.md`](USAGE.md): turning it on, reading the numbers, a stress-run recipe.
 - [`SUMMARY.md`](SUMMARY.md): what was built, the decisions, tests, limits.
 
-Related: [`../freeze-profiler`](../freeze-profiler/README.md) for CPU stalls instead of memory.
+For CPU stalls instead of memory: run the API with `node --cpu-prof` during a stress run and open the `.cpuprofile` in Chrome DevTools.

@@ -14,8 +14,8 @@
 
 ## In progress
 
-- [ ] Freeze profiler and memory tracker in `apps/api/src/libs/`, flag-gated, off by default
-- [ ] `libs/aws` and `libs/ai-agent`: scope to be confirmed (no consumer in this repo yet)
+- [x] Memory tracker in `apps/api/src/libs/`, flag-gated, off by default (ADR 0013)
+- Dropped: freeze profiler, `libs/aws`, `libs/ai-agent`. Built, then removed as beyond the brief; load shedding already covers saturation.
 
 ## Open decision
 

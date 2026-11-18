@@ -1,24 +1,20 @@
-# ADR 0013: Opt-in diagnostics: freeze profiler and memory tracker
+# ADR 0013: Opt-in memory tracker
 
-Status: Accepted
+Status: Accepted (amended the same day: the freeze profiler, S3 store and AI explanation were removed)
 Date: 2026-11-18
 
 ## Context
 
-Load shedding (ADR 0011) says when a process is saturated, not why. Two questions stay open after a bad stress run: which code blocked the event loop, and whether anything leaks under load.
+Load shedding (ADR 0011) says when a process is saturated. After a bad stress run one question stays open: does anything leak under load, and on which route?
 
 ## Decision
 
-Libraries in `apps/api/src/libs/`, all off by default and switched on per process by env var:
+`apps/api/src/libs/memory-tracker`, off by default. `MEMORY_TRACKER=1` makes the API track every request object per route through `FinalizationRegistry` and serve the counts at `GET /debug/memory`. With the flag off the route isn't registered.
 
-- `freeze-profiler` (`FREEZE_PROFILER=1`): a V8 CPU profile runs continuously and is cut every 10 s; a window with an event loop stall past `FREEZE_THRESHOLD_MS` (default 500) is saved as a `.cpuprofile`.
-- `aws` (`FREEZE_PROFILE_S3_BUCKET`): S3 store for those profiles, encrypted at rest, standard AWS credential chain. Local folder otherwise.
-- `ai-agent` (`ANTHROPIC_API_KEY`): one Messages API call per capture that names the likely blocking call from the top frames, saved next to the profile.
-- `memory-tracker` (`MEMORY_TRACKER=1`): live request objects per route via `FinalizationRegistry`, served at `GET /debug/memory`; the route doesn't exist when off.
+A freeze profiler (continuous V8 CPU profiling, saved to disk or S3, with an optional Claude explanation) was built under this ADR and then removed: the brief doesn't need it, load shedding already handles saturation, and it brought two SDK dependencies for a diagnostic path. For a one-off stall, `node --cpu-prof` during a stress run gives the same profile with no code in the repo.
 
 ## Consequences
 
-- Nothing changes for a normal run: no sampling, no extra route, no network call.
-- Turned on, the profiler costs a few percent of CPU and the tracker one registry entry per request. Meant for one instance or one stress run.
-- Two new dependencies in `apps/api` (`@aws-sdk/client-s3`, `@anthropic-ai/sdk`), used only on the diagnostic path. Both clients are injected, so tests use fakes.
-- The AI explanation sends function names and file paths (no request data) to Anthropic. Leave `ANTHROPIC_API_KEY` unset where that isn't acceptable.
+- Nothing changes for a normal run: no extra route, no extra work per request.
+- Turned on, one registry entry per request. Meant for one instance or one stress run.
+- No new dependencies.

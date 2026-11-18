@@ -15,7 +15,7 @@ export function ShopPage() {
   const { user } = useAuth();
   const { sale, error: saleError } = useSalePolling();
   const product = useProduct();
-  const purchase = usePurchase();
+  const purchase = usePurchase(user);
   useProductSeo(product, sale);
 
   return (
@@ -66,6 +66,7 @@ export function ShopPage() {
             saleOpen={sale?.status === "active"}
             submitting={purchase.submitting}
             pending={purchase.pending}
+            owned={purchase.owned}
             outcome={purchase.outcome}
             onBuy={purchase.buy}
           />

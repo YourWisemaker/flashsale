@@ -39,7 +39,7 @@ pnpm test:postman                 # Postman collection via newman; needs a runni
 7. Status codes are a contract: change `apps/api/openapi.yaml`, its copy in `apps/docs/api-reference/`, the README API table and `apps/web/src/api.ts` together.
 8. Load shedding answers before the gate; no `commandTimeout` on the API's Redis client.
 9. Every process closes what it opens on SIGTERM (`gracefulShutdown` in core).
-10. Diagnostics (freeze profiler, memory tracker, AI explanation) stay off unless their env var is set.
+10. The memory tracker stays off unless `MEMORY_TRACKER=1`.
 
 Full list with reasons: `CLAUDE.md`, "Invariants". Decisions: `docs/adr/`.
 

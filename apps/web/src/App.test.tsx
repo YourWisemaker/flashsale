@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App.js";
 import * as api from "./api.js";
@@ -63,6 +63,7 @@ beforeEach(() => {
   mocked.fetchSale.mockResolvedValue(sale());
   mocked.fetchMe.mockResolvedValue(USER);
   mocked.logout.mockResolvedValue(undefined);
+  mocked.fetchMyStatus.mockResolvedValue("none");
   document.getElementById("product-jsonld")?.remove();
 });
 
@@ -165,8 +166,8 @@ describe("buying", () => {
 
   it("shows who is buying, then pending, then confirmed once the worker has written the order", async () => {
     mocked.attemptPurchase.mockResolvedValue({ status: "pending", stockLeft: 41 });
-    // First poll fails (network blip), the next one confirms.
-    mocked.fetchMyStatus.mockRejectedValueOnce(new Error("blip")).mockResolvedValue("confirmed");
+    // On load: nothing bought yet. First poll fails (network blip), the next one confirms.
+    mocked.fetchMyStatus.mockResolvedValueOnce("none").mockRejectedValueOnce(new Error("blip")).mockResolvedValue("confirmed");
     openAt("/");
 
     expect(await loggedInAs(USER)).toBeTruthy();
@@ -175,7 +176,10 @@ describe("buying", () => {
 
     expect(await screen.findByText("Purchase received, confirming...")).toBeTruthy();
     expect(buyButton().disabled).toBe(true);
-    expect(await screen.findByText("You got one! Order confirmed.", {}, { timeout: 5000 })).toBeTruthy();
+    expect(await screen.findByText("Success! You bought one. Your order is confirmed.", {}, { timeout: 5000 })).toBeTruthy();
+    // Bought: the button can't be pressed again, and says why.
+    const purchased = screen.getByRole("button", { name: "Purchased" }) as HTMLButtonElement;
+    expect(purchased.disabled).toBe(true);
     expect(mocked.attemptPurchase).toHaveBeenCalledWith(expect.stringMatching(/^[0-9a-f-]{36}$/));
     expect(mocked.fetchMyStatus).toHaveBeenCalled();
   });
@@ -200,17 +204,67 @@ describe("buying", () => {
   });
 });
 
-describe("idempotency", () => {
-  it("sends a fresh key with every click, so a new click is a new attempt", async () => {
+describe("returning buyer", () => {
+  it("is told they already have one, with Buy Now greyed out, without clicking", async () => {
+    mocked.fetchMyStatus.mockResolvedValue("confirmed");
+    openAt("/");
+    await loggedInAs(USER);
+
+    expect(await within(message()).findByText("You already secured one. One per person.")).toBeTruthy();
+    expect((screen.getByRole("button", { name: "Purchased" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(mocked.attemptPurchase).not.toHaveBeenCalled();
+  });
+
+  it("picks up a still-pending order and keeps polling until it's confirmed", async () => {
+    mocked.fetchMyStatus.mockResolvedValueOnce("pending").mockResolvedValue("confirmed");
+    openAt("/");
+    await loggedInAs(USER);
+
+    expect(await screen.findByText("Purchase received, confirming...")).toBeTruthy();
+    expect(buyButton().disabled).toBe(true);
+    expect(await screen.findByText("Success! You bought one. Your order is confirmed.", {}, { timeout: 5000 })).toBeTruthy();
+  });
+
+  it("leaves Buy Now alone when the status check fails", async () => {
+    mocked.fetchMyStatus.mockRejectedValue(new Error("offline"));
+    openAt("/");
+    await loggedInAs(USER);
+    await screen.findByText("Live now");
+    await waitFor(() => expect(mocked.fetchMyStatus).toHaveBeenCalled());
+    expect(buyButton().disabled).toBe(false);
+  });
+
+  it("doesn't ask for a logged-out visitor", async () => {
+    mocked.fetchMe.mockResolvedValue(null);
+    openAt("/");
+    await screen.findByRole("link", { name: "Log in to buy" });
+    expect(mocked.fetchMyStatus).not.toHaveBeenCalled();
+  });
+
+  it("greys out Buy Now when the server says already purchased", async () => {
     mocked.attemptPurchase.mockResolvedValue({ status: "already_purchased" });
     openAt("/");
     await loggedInAs(USER);
     await screen.findByText("Live now");
 
     fireEvent.click(buyButton());
-    await screen.findByText("You already secured one. One per person.");
+
+    expect(await screen.findByText("You already secured one. One per person.")).toBeTruthy();
+    expect((screen.getByRole("button", { name: "Purchased" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+});
+
+describe("idempotency", () => {
+  it("sends a fresh key with every click, so a new click is a new attempt", async () => {
+    mocked.attemptPurchase.mockResolvedValue({ status: "rate_limited" });
+    openAt("/");
+    await loggedInAs(USER);
+    await screen.findByText("Live now");
+
     fireEvent.click(buyButton());
-    await screen.findByText("You already secured one. One per person.");
+    await screen.findByText("Slow down, too many attempts. Try again shortly.");
+    fireEvent.click(buyButton());
+    await waitFor(() => expect(mocked.attemptPurchase).toHaveBeenCalledTimes(2));
 
     const [first, second] = mocked.attemptPurchase.mock.calls.map(([key]) => key);
     expect(first).not.toBe(second);

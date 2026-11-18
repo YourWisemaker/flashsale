@@ -34,7 +34,7 @@ Check the invariant: `SCARD sale:buyers + GET sale:stock == totalStock`, and con
 | Buyer in Redis, no order in Mongo | Enqueue lost, or a lost reply re-sent the script (REPOSITORY_ANALYSIS risk 3). `pnpm cli reconcile` repairs; find out which first |
 | 503 bursts | Redis/Mongo reachability (`/health`), or load shedding (event loop lag past `MAX_EVENT_LOOP_LAG_MS`) |
 | 429 | Rate limit doing its job: purchases per account per second, auth per IP per minute |
-| Event loop stalls | Run with `FREEZE_PROFILER=1` and open the `.cpuprofile` (apps/api/src/libs/freeze-profiler) |
+| Event loop stalls | Load shedding answers 503 + `retry-after`; reproduce under `pnpm stress` with `node --cpu-prof` on the API and open the `.cpuprofile` in Chrome DevTools |
 | Memory climbing | Run with `MEMORY_TRACKER=1`, compare `GET /debug/memory` before and after load |
 
 ## 4. Trace the code path

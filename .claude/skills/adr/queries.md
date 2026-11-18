@@ -15,7 +15,7 @@
 | Idempotency keys | 0010 |
 | Outages, load shedding, caching | 0011 |
 | Graceful shutdown | 0012 |
-| Freeze profiler, memory tracker, S3, AI explanation | 0013 |
+| Memory tracker (opt-in diagnostics) | 0013 |
 
 Keep this table in step with `docs/adr/README.md` when you add one.
 

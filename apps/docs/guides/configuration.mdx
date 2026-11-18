@@ -14,9 +14,6 @@ All in `.env` (copy `.env.example`). Defaults work for local development.
 | `RATE_LIMIT_MAX` | 5 | Purchases per account per second |
 | `AUTH_RATE_LIMIT_MAX` | 10 | Log in / sign up / reset attempts per IP per minute |
 | `MAX_EVENT_LOOP_LAG_MS` | 200 | Shed requests with 503 past this event loop lag; 0 turns it off |
-| `FREEZE_PROFILER`, `FREEZE_THRESHOLD_MS` | off, 500 | Save CPU profiles of event loop stalls |
-| `FREEZE_PROFILE_DIR`, `FREEZE_PROFILE_S3_BUCKET` | `profiles`, unset | Where profiles go (S3 uses the standard AWS credentials) |
-| `ANTHROPIC_API_KEY` | unset | AI explanation of each captured freeze |
 | `MEMORY_TRACKER` | off | `GET /debug/memory` with live objects per route |
 | `AUTH_SECRET` | dev value | Signs sessions. Required (32+ chars) in production |
 | `WEB_URL` | http://localhost:5173 | Links in reset emails |

@@ -18,3 +18,17 @@ One entry per finished change, written by the `verify-and-log` skill (`.claude/p
 | docs | Mintlify broken-links: none; OpenAPI copy in sync |
 
 Notes: worker and cli mutation not rerun (no logic changed there; worker `index.ts` is excluded wiring). Dev data reseeded after stress and e2e.
+
+## 2026-11-18 remove freeze profiler/aws/ai-agent, Purchased button, production notes (uncommitted at time of run)
+
+| Check | Result |
+|---|---|
+| build, typecheck, lint | pass |
+| unit + property | 285 passed (core 109, api 34, cli 56, web 84, worker 2) |
+| integration | 141 passed (api 90, cli 45, worker 6); one earlier full run had 1 failure in `server.test.ts` (real-process test, run right after stopping the dev stack), then 5 green runs in a row |
+| mutation | api 100% after the removal (414 mutants) |
+| e2e (Playwright) | 11 passed, including the new "Purchased" button and the returning-buyer message |
+| screenshots | all retaken; new 11-upcoming and 12-ended |
+| docs | Mintlify broken-links: none; README relative links all resolve |
+
+Notes: stress not rerun (purchase path unchanged). Dev data reseeded after e2e and screenshots.

@@ -1,5 +1,7 @@
 # Freeze Profiler and Memory Tracker Implementation Plan
 
+> **Outcome (2026-11-18):** built, then the freeze profiler, `libs/aws` and `libs/ai-agent` were removed as beyond the brief. Only the memory tracker shipped. See ADR 0013.
+
 > **For agentic workers:** use superpowers:executing-plans to work this task by task. Steps use checkbox (`- [ ]`) syntax.
 
 **Status:** Planned.

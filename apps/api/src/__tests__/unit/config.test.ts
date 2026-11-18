@@ -15,8 +15,6 @@ describe("loadConfig", () => {
       cookieSecure: false,
       maxEventLoopLagMs: 200,
       memoryTracker: false,
-      freezeProfiler: { enabled: false, thresholdMs: 500, dir: "profiles", s3Bucket: null },
-      anthropicApiKey: null,
     });
   });
 
@@ -67,21 +65,8 @@ describe("loadConfig", () => {
     });
   });
 
-  it("turns the debug aids on only for the exact value 1", () => {
-    const on = loadConfig({
-      MEMORY_TRACKER: "1",
-      FREEZE_PROFILER: "1",
-      FREEZE_THRESHOLD_MS: "250",
-      FREEZE_PROFILE_DIR: "/tmp/freezes",
-      FREEZE_PROFILE_S3_BUCKET: "ops-profiles",
-      ANTHROPIC_API_KEY: "sk-test",
-    });
-    expect(on).toMatchObject({
-      memoryTracker: true,
-      freezeProfiler: { enabled: true, thresholdMs: 250, dir: "/tmp/freezes", s3Bucket: "ops-profiles" },
-      anthropicApiKey: "sk-test",
-    });
-    const off = loadConfig({ MEMORY_TRACKER: "true", FREEZE_PROFILER: "yes", FREEZE_PROFILE_S3_BUCKET: "", ANTHROPIC_API_KEY: "" });
-    expect(off).toMatchObject({ memoryTracker: false, freezeProfiler: { enabled: false, s3Bucket: null }, anthropicApiKey: null });
+  it("turns the memory tracker on only for the exact value 1", () => {
+    expect(loadConfig({ MEMORY_TRACKER: "1" }).memoryTracker).toBe(true);
+    expect(loadConfig({ MEMORY_TRACKER: "true" }).memoryTracker).toBe(false);
   });
 });

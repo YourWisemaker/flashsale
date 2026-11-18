@@ -34,11 +34,14 @@ test.describe("buying", () => {
     await buyButton(page).click();
     await expect(message(page)).toHaveText("Purchase received, confirming...");
     // Worker needs a moment to pick the job off the queue and confirm it.
-    await expect(message(page)).toHaveText("You got one! Order confirmed.", { timeout: 10_000 });
+    await expect(message(page)).toHaveText("Success! You bought one. Your order is confirmed.", { timeout: 10_000 });
     await expect(page.getByText("4 left of 5")).toBeVisible({ timeout: 5_000 });
 
-    await buyButton(page).click();
+    // Owning a unit greys the button out; coming back later says so too.
+    await expect(page.getByRole("button", { name: "Purchased" })).toBeDisabled();
+    await page.reload();
     await expect(message(page)).toHaveText("You already secured one. One per person.");
+    await expect(page.getByRole("button", { name: "Purchased" })).toBeDisabled();
   });
 
   test("loses the race for the last unit and is told it's sold out", async ({ page, request }) => {
