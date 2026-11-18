@@ -1,0 +1,35 @@
+{
+  "name": "@flashsale/web",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -p tsconfig.json --noEmit && vite build",
+    "start": "vite preview --port 5173",
+    "clean": "rm -rf dist",
+    "lint": "echo 'no lint configured for web'",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:integration": "echo 'no integration tests for web, see docs/PRD.md section 9'",
+    "test:e2e": "playwright test"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@flashsale/core": "workspace:*",
+    "@playwright/test": "^1.65.1",
+    "@testing-library/react": "^16",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.3",
+    "ioredis": "^5.4.1",
+    "jsdom": "^25",
+    "mongodb": "^6.11.0",
+    "typescript": "^5.7.0",
+    "vite": "^5.4.11",
+    "vitest": "^2.1.8"
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "name": "@flashsale/stress",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "stress": "tsx --env-file=../.env src/index.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "echo 'no lint configured for stress'",
+    "clean": "rm -rf dist",
+    "test": "echo 'no unit tests, this package is the test'",
+    "test:integration": "echo 'no integration tests, this package is the test'"
+  },
+  "dependencies": {
+    "@flashsale/core": "workspace:*",
+    "bullmq": "^5.34.0",
+    "ioredis": "^5.4.1",
+    "mongodb": "^6.11.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.0"
+  }
+}

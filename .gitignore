@@ -1,0 +1,23 @@
+node_modules/
+.pnpm-store/
+dist/
+build/
+coverage/
+.turbo/
+*.tsbuildinfo
+.env
+.env.*.local
+.DS_Store
+*.log
+.vite/
+stress/results/
+data/
+apps/web/test-results/
+apps/web/playwright-report/
+
+# Confidential take-home brief; kept locally for reference, never committed.
+docs/brief.md
+
+# Mutation testing (Stryker) sandboxes and reports
+.stryker-tmp/
+reports/

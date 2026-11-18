@@ -1,0 +1,30 @@
+{
+  "name": "flashsale",
+  "description": "High-throughput flash sale system: Fastify API, BullMQ worker, React frontend, MongoDB + Redis.",
+  "private": true,
+  "engines": {
+    "node": ">=20"
+  },
+  "packageManager": "pnpm@10.8.0",
+  "scripts": {
+    "dev": "turbo dev",
+    "build": "turbo build",
+    "lint": "turbo lint",
+    "typecheck": "turbo typecheck",
+    "test": "turbo test",
+    "test:integration": "turbo test:integration",
+    "clean": "turbo clean && rm -rf node_modules",
+    "seed": "pnpm --filter @flashsale/api run seed",
+    "dlq:replay": "pnpm --filter @flashsale/worker run dlq:replay",
+    "reconcile": "pnpm --filter @flashsale/worker run reconcile",
+    "stress": "pnpm --filter @flashsale/stress run stress",
+    "test:e2e": "pnpm --filter @flashsale/web run test:e2e",
+    "infra:up": "docker compose up -d",
+    "infra:down": "docker compose down",
+    "test:mutation": "turbo test:mutation"
+  },
+  "devDependencies": {
+    "turbo": "^2.3.0",
+    "typescript": "^5.7.0"
+  }
+}
