@@ -1,0 +1,14 @@
+---
+title: Accounts and sessions
+description: Why buying needs a login, and how auth stays off the hot path.
+---
+
+"One per user" only means something if the user is real. So Buy Now uses the logged-in account, and nobody can buy as someone else by typing their id.
+
+- **Passwords**: scrypt hashes, compared in constant time. An unknown email costs the same time as a wrong password, and both get "Wrong email or password."
+- **Sessions**: HS256 JWT (algorithm pinned) in an `httpOnly`, `SameSite=Strict` cookie, `Secure` in production. Verified in memory on the purchase path: no database lookup.
+- **Password reset**: a single-use token stored only as a SHA-256 hash, expiring after 30 minutes. The link lands in an outbox collection, a stand-in for an email provider. Read it with `pnpm cli outbox`.
+- **Rate limits**: purchases per account (people behind one office IP don't block each other); log in, sign up, forgot and reset per IP per minute.
+- **Anti-clickjacking**: `X-Frame-Options: DENY` and CSP `frame-ancestors 'none'` on every API response, Swagger UI included, and on the web server.
+
+ADR 0009.

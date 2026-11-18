@@ -1,0 +1,53 @@
+---
+title: Quickstart
+description: From clone to a working purchase in a few commands.
+---
+
+Needs Node 20+, pnpm, and Redis + MongoDB (Docker or local installs).
+
+<Steps>
+  <Step title="Start Redis and MongoDB">
+    ```bash
+    docker compose up -d
+    ```
+    Or run `redis-server` and `mongod` yourself.
+  </Step>
+  <Step title="Install and build">
+    ```bash
+    cp .env.example .env
+    pnpm install
+    pnpm build
+    ```
+    `packages/core` builds first; the apps import its compiled output.
+  </Step>
+  <Step title="Seed">
+    ```bash
+    pnpm cli seed --force --start now --minutes 60
+    ```
+    Creates indexes, the product, a sale that starts now and runs an hour, and the demo account.
+  </Step>
+  <Step title="Run">
+    ```bash
+    pnpm dev
+    ```
+    API on `:3000` (Swagger UI at `/docs`), worker, storefront on `:5173`.
+  </Step>
+</Steps>
+
+## Test account
+
+| Email | Password |
+|---|---|
+| `demo@example.com` | `FlashSale2026!` |
+
+`pnpm cli seed` creates it and resets its password every time. Development only. You can also sign up with any email.
+
+<img src="/images/login.png" alt="Log in page" />
+
+## Run this docs site
+
+```bash
+pnpm docs
+```
+
+Serves this site on http://localhost:3333 with the Mintlify CLI.

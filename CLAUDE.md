@@ -9,11 +9,12 @@ Read before changing the purchase flow: `docs/architecture.md` (diagram, request
 | Path | Owns | Package CLAUDE.md |
 |---|---|---|
 | `packages/core` | The rules: Lua purchase gate, Redis keys, job options, orders, product, users, sessions, reset tokens, outbox. Shared by everything else. | yes |
-| `apps/api` | HTTP: Fastify routes (sale, purchase, auth, product), rate limits, security headers, cluster entry point | yes |
+| `apps/api` | HTTP: Fastify routes (sale, purchase, auth, product), rate limits, load shedding, security headers, OpenAPI spec + Swagger UI at `/docs`, cluster entry point | yes |
 | `apps/worker` | Queue consumer that confirms orders into Mongo | yes |
 | `apps/cli` | `pnpm cli`: seed, clean up, accounts, outbox, DLQ replay, reconcile | yes |
 | `apps/web` | React storefront and account pages, Vitest component tests, Playwright e2e | yes |
 | `stress/` | Load harness plus invariant checks against Redis/Mongo. Destructive. | yes |
+| `apps/docs` | Mintlify site (`pnpm docs`, port 3333). API pages come from a copy of `apps/api/openapi.yaml`; its `test` script fails if the copy drifts. | yes (`cmp`) |
 | `docs/` | PRD, architecture, ADRs | no |
 
 ## Commands
@@ -23,16 +24,27 @@ docker compose up -d          # Redis + Mongo (or local redis-server / mongod)
 pnpm install && pnpm build    # build core first; apps import its compiled dist/
 pnpm cli seed                 # indexes, product, sale window, demo account (demo@example.com / FlashSale2026!)
 pnpm cli                      # interactive ops menu; pnpm cli --help for every command
-pnpm dev                      # api + worker + web, watch mode
+pnpm dev                      # api + worker + web, watch mode. Swagger UI: http://localhost:3000/docs
+pnpm docs                     # Mintlify docs site on :3333 (copies the OpenAPI spec first)
 
 pnpm typecheck
+pnpm lint                     # ESLint 10 flat config at the root (eslint.config.mjs)
 pnpm test                     # unit + property-based (core, api, worker, cli, web). Needs Redis + Mongo.
 pnpm test:integration         # api, worker, cli against real Redis + Mongo
 pnpm test:mutation            # Stryker on core, api, worker, cli. A few minutes. Break threshold 75, currently 100.
 pnpm test:e2e                 # Playwright. Needs `AUTH_RATE_LIMIT_MAX=1000 pnpm dev` running.
+pnpm test:python              # pytest contract tests vs the running API. One time: python3 -m venv .venv && .venv/bin/pip install -r tests/python/requirements.txt
 pnpm stress                   # Needs api (RATE_LIMIT_MAX raised) + worker running. Wipes orders. See stress/README.md.
 pnpm --filter @flashsale/<core|api|worker|cli|web|stress> run <script>
 ```
+
+## Skills, agents, code graph
+
+- `.claude/skills/`: `adr`, `backend-api`, `read-database` (read only), `codegraph`, `global-typescript`, `global-coding-style`, `global-git`, `global-tech-stack`. Load the one that matches the task.
+- `.claude/agents/`: one agent per package plus a read-only `verifier`.
+- `codegraph init -i .` (once) then `codegraph impact <symbol>` before changing anything in `packages/core`. `.codegraph/` is gitignored.
+- `AGENTS.md` repeats the rules for non-Claude agents. Change an invariant here, change it there too.
+- Plugins `superpowers` and `ponytail` are enabled in `.claude/settings.json`.
 
 After changing `packages/core`, rebuild it (`pnpm --filter @flashsale/core build`) before running anything that imports it. Consumers read the compiled `dist/`, so a stale build typechecks and runs against old code.
 
@@ -47,8 +59,9 @@ After changing `packages/core`, rebuild it (`pnpm --filter @flashsale/core build
 7. **The API stays stateless.** Anything shared between requests lives in Redis, or `API_PROCESSES` and multi-host scaling break. A cluster child that fails at startup must stop the cluster, never fork-loop. ADR 0007.
 8. **Rate limits:** purchases per account; log in, sign up, forgot and reset per IP per minute. Status reads stay unlimited.
 9. **Auth stays off the database on the hot path:** the purchase route verifies the session signature in memory. Don't add a user lookup there. Passwords only as scrypt hashes; reset tokens only as SHA-256 hashes; login and forgot give the same answer whether or not an account exists. ADR 0009.
-10. **Status codes are a contract** with the frontend and the docs (README API table). Changing one means changing `apps/web/src/api.ts` and its tests in the same change.
+10. **Status codes are a contract** with the frontend and the docs (README API table, `apps/api/openapi.yaml`). Changing one means changing `apps/web/src/api.ts` and its tests in the same change.
 11. **Idempotency-Key on purchase:** claimed with `SET NX` before the gate runs, answer saved after, released only on 503. Never run the gate when the claim fails (answer 503). ADR 0010.
+12. **Shed before the gate, never after.** The load-shedding hook (`apps/api/src/load-shedding.ts`) answers 503 before any Redis call. No `commandTimeout` on the API's Redis client: a timed-out `EVALSHA` may already have reserved a unit. ADR 0011.
 
 ## Testing rules
 

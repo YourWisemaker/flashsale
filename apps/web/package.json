@@ -8,7 +8,7 @@
     "build": "tsc -p tsconfig.json --noEmit && vite build",
     "start": "vite preview",
     "clean": "rm -rf dist",
-    "lint": "echo 'no lint configured for web'",
+    "lint": "eslint .",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "test:integration": "echo 'no integration tests for web, see docs/PRD.md section 9'",

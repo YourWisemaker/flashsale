@@ -6,7 +6,7 @@
   "scripts": {
     "stress": "tsx --env-file=../.env src/index.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "lint": "echo 'no lint configured for stress'",
+    "lint": "eslint .",
     "clean": "rm -rf dist",
     "test": "echo 'no unit tests, this package is the test'",
     "test:integration": "echo 'no integration tests, this package is the test'"

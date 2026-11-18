@@ -1,0 +1,41 @@
+---
+title: Resilience
+description: Fail fast on outages, shed load on saturation, cache what doesn't change.
+---
+
+## Fail fast
+
+| Dependency | API setting | Effect |
+|---|---|---|
+| Redis | `maxRetriesPerRequest: 1` | A command fails after one reconnect attempt, not 20 |
+| MongoDB | `serverSelectionTimeoutMS: 2000` | 503 within 2 s, not 30 |
+
+An error handler turns Mongo connection errors (server selection, network, closed client) into 503 `unavailable` instead of 500. The worker keeps the patient defaults, so a short Mongo blip retries rather than filling the DLQ.
+
+## Breaker on connection state
+
+One app-level hook runs before every route hook. While the Redis client isn't `ready`, it answers 503 `{ status: "unavailable" }` without sending a command. `GET /api/product` is exempt, so the shop page still renders. There's no breaker library: ioredis already tracks the state, opening the moment the socket drops and closing the moment it's back.
+
+## Load shedding
+
+`monitorEventLoopDelay` samples lag every 500 ms. Past `MAX_EVENT_LOOP_LAG_MS` (default 200, 0 turns it off) the API answers 503 with `retry-after: 1`. `/health` is shed too, so a load balancer pulls the busy instance.
+
+Both 503s fire before the purchase gate, so a shed request never holds a unit. The last stress run, at 16,000 to 19,000 req/s, shed zero requests at the default.
+
+<Warning>
+There is deliberately no `commandTimeout` on the API's Redis client. A timed-out `EVALSHA` may already have reserved a unit; answering 503 would strand it.
+</Warning>
+
+## Caching
+
+| Endpoint | Cache |
+|---|---|
+| `GET /api/product` | 60 s in each API process (a 404 is never cached), plus `max-age=60` for browsers and CDNs |
+| `GET /api/sale` | `public, max-age=0, s-maxage=1`: a CDN holds it 1 s, browsers always refetch |
+
+## Not built, on purpose
+
+- **Virtual waiting room.** The Redis gate answers in about a millisecond, so there's no slow backend to protect. Rate limits and the queue shape the spike.
+- **Timed stock holds.** The brief has no payment step, so a reservation is final and nothing needs to expire.
+
+ADR 0011.

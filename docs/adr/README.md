@@ -12,3 +12,4 @@ Short records of the decisions that would otherwise only live in a reviewer's he
 - [0008: Property-based and mutation tests on top of unit and integration](0008-test-layers.md)
 - [0009: Accounts, with the buyer taken from a signed session](0009-accounts-and-sessions.md)
 - [0010: Idempotency keys for safe purchase retries](0010-idempotency-keys.md)
+- [0011: Fail fast on outages, shed load on saturation](0011-fail-fast-and-load-shedding.md)

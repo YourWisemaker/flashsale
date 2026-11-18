@@ -18,5 +18,8 @@ export function useProductSeo(product: Product | null, sale: SaleSnapshot | null
       document.head.appendChild(script);
     }
     script.textContent = JSON.stringify(buildProductJsonLd(product, sale, window.location.origin));
+    // Only status and end time feed the JSON-LD; the 2s poll hands over a
+    // new `sale` object every time, which would rewrite the tag for nothing.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [product, sale?.status, sale?.endsAt]);
 }

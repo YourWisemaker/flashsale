@@ -1,0 +1,22 @@
+---
+title: Arief Shop Flash Sale
+description: One limited-edition product, a sale window, fixed stock, one unit per account, built to hold up when thousands of people press Buy Now in the same second.
+---
+
+<img src="/images/shop.png" alt="The shop page during a live sale" />
+
+A Fastify API, a BullMQ worker and a React storefront, with Redis on the hot path and MongoDB as the durable record, in a pnpm + Turborepo monorepo.
+
+## What the system guarantees
+
+- **No overselling.** One atomic Redis Lua script checks the window, the buyer and the stock, then decrements, in one round trip.
+- **One unit per account.** The buyer is the account in the signed session cookie, never anything in the request body.
+- **No duplicate orders.** The buyer set, a fixed queue job id per account and a unique Mongo index each stop a second order on their own.
+- **Fast failure.** Redis down means a 503 in milliseconds. A saturated process sheds load before the purchase gate runs.
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">Run the stack locally and buy the demo product.</Card>
+  <Card title="The flow" icon="images" href="/flows">Every important screen, captured against the real stack.</Card>
+  <Card title="Architecture" icon="sitemap" href="/architecture">Components, the request path and how it scales.</Card>
+  <Card title="API reference" icon="code" href="/api-reference/introduction">Every endpoint and status code, also live at /docs on the API.</Card>
+</CardGroup>

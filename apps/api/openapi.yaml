@@ -1,0 +1,355 @@
+openapi: 3.0.3
+info:
+  title: Arief Shop Flash Sale API
+  version: 1.0.0
+  description: |
+    One product, limited stock, one unit per account, inside a sale window.
+    The buyer is always the account in the session cookie, never the request body.
+
+    Any route except `/api/product` answers 503 `unavailable` while Redis is
+    unreachable, and 503 with `retry-after: 1` while the process is saturated.
+servers:
+  - url: http://localhost:3000
+tags:
+  - name: Sale
+  - name: Purchase
+  - name: Auth
+  - name: Ops
+
+components:
+  securitySchemes:
+    session:
+      type: apiKey
+      in: cookie
+      name: session
+      description: Signed session token, set by register, login and reset.
+  schemas:
+    Error:
+      type: object
+      required: [error, message]
+      properties:
+        error: { type: string, example: invalid_email }
+        message: { type: string, description: Meant for people. }
+    Status:
+      type: object
+      required: [status]
+      properties:
+        status: { type: string }
+    Credentials:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string, format: email, example: demo@example.com }
+        password: { type: string, format: password, minLength: 8 }
+    Account:
+      type: object
+      required: [email]
+      properties:
+        email: { type: string, format: email }
+  responses:
+    Unavailable:
+      description: Redis or Mongo unreachable (or the Mongo client closed), or this process is shedding load.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Status" }
+          example: { status: unavailable }
+    Unauthorized:
+      description: No valid session cookie.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: unauthorized, message: Log in to continue. }
+    RateLimited:
+      description: Too many attempts.
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              statusCode: { type: integer, example: 429 }
+              status: { type: string, example: rate_limited }
+              message: { type: string, example: Too many attempts. Wait a moment and try again. }
+
+paths:
+  /api/sale:
+    get:
+      tags: [Sale]
+      summary: Sale status
+      description: Window, stock and status. Unlimited; the storefront polls it every 2 seconds. A CDN may cache it for 1 second (`s-maxage=1`).
+      responses:
+        "200":
+          description: Current sale snapshot.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, startsAt, endsAt, totalStock, stockLeft]
+                properties:
+                  status: { type: string, enum: [upcoming, active, ended, sold_out] }
+                  startsAt: { type: string, format: date-time }
+                  endsAt: { type: string, format: date-time }
+                  totalStock: { type: integer, example: 100 }
+                  stockLeft: { type: integer, example: 42 }
+        "503": { $ref: "#/components/responses/Unavailable" }
+
+  /api/product:
+    get:
+      tags: [Sale]
+      summary: Product display data
+      description: Name, price, photos, specs. Cached 60 seconds in the API and by browsers. Still served while Redis is down.
+      responses:
+        "200":
+          description: The product on sale.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sku: { type: string }
+                  name: { type: string }
+                  description: { type: string }
+                  priceCents: { type: integer, description: "Minor units, to avoid float rounding." }
+                  originalPriceCents: { type: integer }
+                  currency: { type: string, example: USD }
+                  images:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        url: { type: string }
+                        alt: { type: string }
+                  specs:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        label: { type: string }
+                        value: { type: string }
+        "404":
+          description: Nothing seeded yet.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "503": { $ref: "#/components/responses/Unavailable" }
+  /api/purchase:
+    post:
+      tags: [Purchase]
+      summary: Attempt a purchase
+      description: |
+        Runs the atomic Redis Lua gate (window, one per account, stock). A win reserves a unit
+        and queues the durable order; poll `GET /api/purchase/me` until it reads `confirmed`.
+        No request body: the buyer comes from the session.
+      security: [{ session: [] }]
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: false
+          description: 8 to 128 of `[A-Za-z0-9_-]`. A retry with the same key gets the original answer, with `Idempotent-Replayed true`.
+          schema: { type: string, pattern: "^[A-Za-z0-9_-]{8,128}$" }
+      responses:
+        "202":
+          description: Unit reserved; order is being confirmed.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, enum: [pending] }
+                  stockLeft: { type: integer }
+        "400":
+          description: Malformed Idempotency-Key.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example: { error: invalid_idempotency_key, message: "Idempotency-Key must be 8 to 128 letters, digits, - or _." }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403":
+          description: Sale not open.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Status" }
+              examples:
+                upcoming: { value: { status: upcoming } }
+                ended: { value: { status: ended } }
+        "409":
+          description: This account already has a unit, or the same Idempotency-Key is still in flight.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Status" }
+              examples:
+                already_purchased: { value: { status: already_purchased } }
+                in_progress: { value: { status: in_progress } }
+        "410":
+          description: Sold out.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Status" }
+              example: { status: sold_out }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "503": { $ref: "#/components/responses/Unavailable" }
+
+  /api/purchase/me:
+    get:
+      tags: [Purchase]
+      summary: Did I get one?
+      description: Only your own status.
+      security: [{ session: [] }]
+      responses:
+        "200":
+          description: This account's purchase status.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  userId: { type: string }
+                  status: { type: string, enum: [none, pending, confirmed] }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/Unavailable" }
+
+  /api/auth/register:
+    post:
+      tags: [Auth]
+      summary: Sign up
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Credentials" }
+      responses:
+        "201":
+          description: Account created; session cookie set.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Account" }
+        "400":
+          description: invalid_email or weak_password.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "409":
+          description: email_taken.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "503": { $ref: "#/components/responses/Unavailable" }
+  /api/auth/login:
+    post:
+      tags: [Auth]
+      summary: Log in
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Credentials" }
+      responses:
+        "200":
+          description: Logged in; session cookie set.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Account" }
+        "401":
+          description: Same answer for an unknown email and a wrong password.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example: { error: invalid_credentials, message: Wrong email or password. }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "503": { $ref: "#/components/responses/Unavailable" }
+  /api/auth/logout:
+    post:
+      tags: [Auth]
+      summary: Log out
+      responses:
+        "204": { description: Cookie cleared. }
+
+  /api/auth/me:
+    get:
+      tags: [Auth]
+      summary: Current account
+      security: [{ session: [] }]
+      responses:
+        "200":
+          description: Logged in.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Account" }
+        "401":
+          description: Not logged in.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /api/auth/forgot:
+    post:
+      tags: [Auth]
+      summary: Request a password reset link
+      description: Same answer whether or not the email has an account. The link lands in the outbox (`pnpm cli outbox`).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email: { type: string, format: email }
+      responses:
+        "202":
+          description: Accepted.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, enum: [sent] }
+                  message: { type: string }
+        "400":
+          description: invalid_email.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "503": { $ref: "#/components/responses/Unavailable" }
+  /api/auth/reset:
+    post:
+      tags: [Auth]
+      summary: Set a new password from a reset link
+      description: Links work once and expire after 30 minutes.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token, password]
+              properties:
+                token: { type: string }
+                password: { type: string, format: password, minLength: 8 }
+      responses:
+        "200":
+          description: Password changed; session cookie set.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Account" }
+        "400":
+          description: invalid_token or weak_password.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "503": { $ref: "#/components/responses/Unavailable" }
+  /health:
+    get:
+      tags: [Ops]
+      summary: Liveness and dependencies
+      description: Shed with 503 too while the process is saturated, so a load balancer pulls the instance.
+      responses:
+        "200":
+          description: Redis and Mongo respond.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Status" }
+              example: { status: ok }
+        "503": { $ref: "#/components/responses/Unavailable" }

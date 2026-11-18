@@ -1,0 +1,27 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "theme": "mint",
+  "name": "Arief Shop Flash Sale",
+  "colors": { "primary": "#f4511e", "light": "#ff7043", "dark": "#d84315" },
+  "favicon": "/favicon.svg",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Guides",
+        "groups": [
+          { "group": "Get started", "pages": ["index", "quickstart", "flows"] },
+          { "group": "How it works", "pages": ["architecture", "concepts/purchase-gate", "concepts/idempotency", "concepts/resilience", "concepts/accounts"] },
+          { "group": "Operate and test", "pages": ["guides/configuration", "guides/cli", "guides/testing"] }
+        ]
+      },
+      {
+        "tab": "API reference",
+        "groups": [
+          { "group": "Overview", "pages": ["api-reference/introduction"] },
+          { "group": "Endpoints", "openapi": "api-reference/openapi.yaml" }
+        ]
+      }
+    ]
+  },
+  "footer": { "socials": { "github": "https://github.com/YourWisemaker/flashsale" } }
+}

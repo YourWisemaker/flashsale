@@ -1,0 +1,11 @@
+{
+  "name": "@flashsale/docs",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Mintlify docs site. The API reference is generated from api-reference/openapi.yaml, a copy of apps/api/openapi.yaml.",
+  "scripts": {
+    "docs": "cp ../api/openapi.yaml api-reference/openapi.yaml && npx -y mint@4.3.53 dev --port 3333",
+    "test": "cmp ../api/openapi.yaml api-reference/openapi.yaml || (echo 'apps/docs/api-reference/openapi.yaml is stale: copy it from apps/api/openapi.yaml' && exit 1)",
+    "check": "npx -y mint@4.3.53 broken-links"
+  }
+}

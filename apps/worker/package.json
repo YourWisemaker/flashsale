@@ -8,7 +8,7 @@
     "build": "tsc -p tsconfig.json",
     "start": "node --env-file=../../.env dist/index.js",
     "clean": "rm -rf dist",
-    "lint": "echo 'no lint configured for worker'",
+    "lint": "eslint .",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run src/__tests__/unit",
     "test:integration": "vitest run src/__tests__/integration",

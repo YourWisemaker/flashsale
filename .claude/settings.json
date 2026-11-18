@@ -26,7 +26,35 @@
       "Bash(npx stryker run:*)",
       "Bash(npx playwright test:*)",
       "Bash(lsof -ti:*)",
-      "Bash(git worktree list)"
+      "Bash(git worktree list)",
+      "Bash(pnpm docs)",
+      "Bash(pnpm test:python)",
+      "Bash(codegraph status:*)",
+      "Bash(codegraph query:*)",
+      "Bash(codegraph callers:*)",
+      "Bash(codegraph callees:*)",
+      "Bash(codegraph impact:*)",
+      "Bash(codegraph context:*)",
+      "Bash(codegraph sync:*)",
+      "Bash(npx eslint:*)"
     ]
+  },
+  "extraKnownMarketplaces": {
+    "claude-plugins-official": {
+      "source": {
+        "source": "github",
+        "repo": "anthropics/claude-plugins-official"
+      }
+    },
+    "ponytail": {
+      "source": {
+        "source": "github",
+        "repo": "DietrichGebert/ponytail"
+      }
+    }
+  },
+  "enabledPlugins": {
+    "superpowers@claude-plugins-official": true,
+    "ponytail@ponytail": true
   }
 }

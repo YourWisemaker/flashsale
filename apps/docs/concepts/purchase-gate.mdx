@@ -1,0 +1,47 @@
+---
+title: The purchase gate
+description: How one Redis Lua script stops overselling and double buying.
+---
+
+Redis runs a Lua script to completion before it looks at the next command. So "check the window, check the buyer, check the stock, decrement, record the buyer" is one indivisible step. Two requests racing for the last unit can't both pass.
+
+```lua packages/core/src/lua-scripts.ts
+local time = redis.call('TIME')
+local now = (tonumber(time[1]) * 1000) + math.floor(tonumber(time[2]) / 1000)
+
+if now < startsAt then return {'upcoming'} end
+if now > endsAt then return {'ended'} end
+
+if redis.call('SISMEMBER', buyersKey, userId) == 1 then
+  return {'already_purchased'}
+end
+
+local stock = tonumber(redis.call('GET', stockKey))
+if stock <= 0 then return {'sold_out'} end
+
+local remaining = redis.call('DECR', stockKey)
+redis.call('SADD', buyersKey, userId)
+return {'reserved', tostring(remaining)}
+```
+
+## Why a script, not a lock
+
+A lock needs acquire, work, release: three round trips, a TTL to tune, and a held lock if a client dies mid-way. The script is one round trip that can't deadlock. ADR 0001 has the full reasoning.
+
+## Why Redis's clock
+
+`redis.call('TIME')` reads Redis's own clock. Several API processes can drift from each other; the sale window is enforced against one shared clock instead.
+
+## Outcomes and status codes
+
+| Script result | HTTP | Body |
+|---|---|---|
+| `reserved` | 202 | `{ status: "pending", stockLeft }` |
+| `already_purchased` | 409 | `{ status: "already_purchased" }` |
+| `sold_out` | 410 | `{ status: "sold_out" }` |
+| `upcoming` / `ended` | 403 | `{ status }` |
+| `not_configured` | 503 | `{ status: "unavailable" }` |
+
+## After a reservation
+
+The API enqueues `{ userId, reservedAt }` with job id `order-<userId>`. BullMQ drops a second add with the same id. If the enqueue throws, `release.lua` gives the unit back and the API answers 503, so a unit never vanishes. A worker then upserts the order on the unique `userId` index, safe to run twice.

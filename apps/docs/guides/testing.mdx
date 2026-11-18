@@ -1,0 +1,53 @@
+---
+title: Tests and stress tests
+description: Every test layer, and what each one proves.
+---
+
+| Layer | Command | What it proves | Count |
+|---|---|---|---|
+| Unit | `pnpm test` | Gate logic, auth (tokens, hashing, forged and expired sessions), idempotency keys, CLI commands and validation, React pages and components | 267 |
+| Property-based | part of `pnpm test` | fast-check runs hundreds of random purchase/release sequences and concurrent bursts against a plain reference model of the rules | 7 properties |
+| Integration | `pnpm test:integration` | Every endpoint and status code, idempotent retries and concurrent duplicates, real Redis and Mongo, the cluster entry point, a real BullMQ worker and DLQ, every CLI command | 136 |
+| Mutation | `pnpm test:mutation` | Stryker changes the code (flip a `<`, drop a branch) and checks a test fails each time | 100% on core, api, worker, cli |
+| End-to-end | `pnpm test:e2e` | Real Chromium, real stack: buy flow, the race for the last unit, sign up, forgot and reset password, SEO tags, a hostile page failing to frame the shop | 11 |
+| Contract (Python) | `pnpm test:python` | pytest against the running API: every status code it sees must be in `openapi.yaml`, plus security headers and cache headers. Read only | 7 |
+| Lint | `pnpm lint` | ESLint 10 flat config (`eslint.config.mjs`), typescript-eslint, react-hooks | 0 problems |
+| Stress | `pnpm stress` | 26,000 requests across 3 scenarios, then invariant checks | 3 scenarios |
+
+```bash
+pnpm test && pnpm test:integration      # needs Redis + Mongo
+pnpm test:mutation                       # a few minutes
+AUTH_RATE_LIMIT_MAX=1000 pnpm dev        # then, in another terminal:
+npx playwright install chromium          # one time
+pnpm test:e2e
+
+python3 -m venv .venv && .venv/bin/pip install -r tests/python/requirements.txt   # one time
+pnpm test:python                         # needs a running API (pnpm dev) and pnpm cli seed
+```
+
+The e2e suite logs in many times a minute from one IP, which is exactly what the auth rate limit is there to stop, hence the raised limit for that run.
+
+### Bugs the test layers caught
+
+Each of these passed every test that existed before it:
+
+- A numeric userId could never buy: BullMQ rejects job ids that look like integers. Found in review.
+- The rate limiter answered 500 instead of 429, and Redis being down answered 500 instead of 503. Found by probing error paths.
+- A returning user in a re-seeded sale stayed "pending" forever: BullMQ kept completed jobs and silently ignored a re-enqueue. Found by running the stress test twice in a row.
+- The API cluster fork-looped forever when the port was taken, pinning every CPU. Found while benchmarking.
+- `reconcile` dropped users whose job was in the DLQ, which would have resold their unit after a replay: an oversell. Found by mutation testing.
+- The login page carried two contradicting robots tags, and a rate-limited login said "Couldn't reach the server". Found by e2e.
+- A test for "tampered password hash" was itself flaky: the last base64 character's low bits don't decode to anything.
+- Mutation testing kept finding a setup trap: when a `beforeAll` throws, Vitest skips the tests instead of failing them. Setup now runs in `beforeEach` or inside the test.
+
+## Stress tests
+
+```bash
+API_PROCESSES=2 RATE_LIMIT_MAX=100000 pnpm --filter @flashsale/api start   # purchase limit opened up
+WORKER_CONCURRENCY=25 pnpm --filter @flashsale/worker start                 # run twice, two terminals
+pnpm stress
+```
+
+Virtual users carry signed session cookies, as if they'd logged in before the sale opened, which is what real flash-sale traffic looks like. Three scenarios: 10,000 users racing for 100 units, 1 user firing 1,000 concurrent attempts, and 5,000 users each clicking 3 times against 2,000 units. After each, the script waits for the queue to drain and checks Redis and Mongo directly.
+
+Expected outcome, and the last run: every invariant passes. Exactly 100 / 1 / 2,000 confirmed orders, zero duplicates, stock never negative, Redis and Mongo agree. 14,000 to 18,000 req/s from a single client process, p99 115 ms at worst, and the jobs split 1,043 / 1,058 between the two workers. Full output and how to read it: [`stress/README.md`](https://github.com/YourWisemaker/flashsale/blob/main/stress/README.md).

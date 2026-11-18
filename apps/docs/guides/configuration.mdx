@@ -1,0 +1,22 @@
+---
+title: Configuration
+description: Every environment variable and its default.
+---
+
+All in `.env` (copy `.env.example`). Defaults work for local development.
+
+| Variable | Default | Notes |
+|---|---|---|
+| `REDIS_URL`, `MONGO_URL` | localhost | |
+| `SALE_START`, `SALE_END`, `SALE_STOCK` | starts in 1 min, runs 1 h, 100 | Read by `pnpm cli seed`; flags override them |
+| `PORT` | 3000 | API |
+| `API_PROCESSES` | 1 | API processes on this host (cluster mode) |
+| `RATE_LIMIT_MAX` | 5 | Purchases per account per second |
+| `AUTH_RATE_LIMIT_MAX` | 10 | Log in / sign up / reset attempts per IP per minute |
+| `MAX_EVENT_LOOP_LAG_MS` | 200 | Shed requests with 503 past this event loop lag; 0 turns it off |
+| `AUTH_SECRET` | dev value | Signs sessions. Required (32+ chars) in production |
+| `WEB_URL` | http://localhost:5173 | Links in reset emails |
+| `COOKIE_SECURE` | on in production | Session cookie only over HTTPS |
+| `WORKER_CONCURRENCY` | 10 | Jobs per worker process |
+| `VITE_SITE_URL` | http://localhost:5173 | Canonical and Open Graph URLs |
+| `TEST_REDIS_URL`, `TEST_MONGO_URL` | localhost | Point the test suites at other infra (parallel agents, CI) |

@@ -4,7 +4,7 @@ A flash sale for one limited-edition product: a configurable sale window, fixed 
 
 | Shop | Log in |
 |---|---|
-| ![Shop page, logged in](docs/screenshots/shop.png) | ![Log in page](docs/screenshots/login.png) |
+| ![Shop page, logged in](apps/docs/images/shop.png) | ![Log in page](apps/docs/images/login.png) |
 
 ## Test account
 
@@ -54,13 +54,13 @@ Captured in a real browser against the running stack.
 
 | | |
 |---|---|
-| ![Logged out](docs/screenshots/flow/01-logged-out.jpg) **1. Logged out.** The sale is live; buying needs an account. | ![Log in](docs/screenshots/flow/02-login.jpg) **2. Log in.** |
-| ![Logged in](docs/screenshots/flow/03-logged-in.jpg) **3. Logged in.** "Buying as" shows who the purchase is for. | ![Pending](docs/screenshots/flow/04-pending.jpg) **4. Pending.** The unit is reserved in Redis; the worker hasn't confirmed it yet. |
-| ![Confirmed](docs/screenshots/flow/05-confirmed.jpg) **5. Confirmed.** Stock drops to 99. | ![Already purchased](docs/screenshots/flow/06-already-purchased.jpg) **6. Second click.** One per account. |
-| ![Sold out](docs/screenshots/flow/07-sold-out.jpg) **7. Sold out.** The button disables and the page says why. | ![Register](docs/screenshots/flow/08-register.jpg) **8. Sign up.** |
-| ![Forgot password](docs/screenshots/flow/09-forgot-password.jpg) **9. Forgot password.** Same answer whether or not the email has an account. | ![Reset password](docs/screenshots/flow/10-reset-password.jpg) **10. Reset password**, from the emailed one-time link. |
+| ![Logged out](apps/docs/images/flow/01-logged-out.jpg) **1. Logged out.** The sale is live; buying needs an account. | ![Log in](apps/docs/images/flow/02-login.jpg) **2. Log in.** |
+| ![Logged in](apps/docs/images/flow/03-logged-in.jpg) **3. Logged in.** "Buying as" shows who the purchase is for. | ![Pending](apps/docs/images/flow/04-pending.jpg) **4. Pending.** The unit is reserved in Redis; the worker hasn't confirmed it yet. |
+| ![Confirmed](apps/docs/images/flow/05-confirmed.jpg) **5. Confirmed.** Stock drops to 99. | ![Already purchased](apps/docs/images/flow/06-already-purchased.jpg) **6. Second click.** One per account. |
+| ![Sold out](apps/docs/images/flow/07-sold-out.jpg) **7. Sold out.** The button disables and the page says why. | ![Register](apps/docs/images/flow/08-register.jpg) **8. Sign up.** |
+| ![Forgot password](apps/docs/images/flow/09-forgot-password.jpg) **9. Forgot password.** Same answer whether or not the email has an account. | ![Reset password](apps/docs/images/flow/10-reset-password.jpg) **10. Reset password**, from the emailed one-time link. |
 
-On a phone it stacks into one column: [screenshot](docs/screenshots/shop-mobile.png).
+On a phone it stacks into one column: [screenshot](apps/docs/images/shop-mobile.png).
 
 ## Repo structure
 
@@ -71,16 +71,21 @@ apps/
   web/       React storefront: shop page plus log in, sign up, forgot and reset password.
              public/ holds the favicon, robots.txt and product photos. e2e/ is Playwright.
   cli/       pnpm cli: seed, clean up, inject product, accounts, outbox, DLQ replay, reconcile.
+  docs/      Mintlify docs site (pnpm docs). images/ holds every screenshot in this README.
 packages/
   core/      The rules, shared by everything: Lua purchase gate, Redis keys, job options,
              orders, product, users, sessions, password reset tokens, outbox.
 stress/      Load harness: 26,000 requests, then invariant checks against Redis and Mongo.
+tests/python/ Black-box contract tests (pytest) against the running API.
 docs/
   architecture.md   diagram, request walkthrough, failure handling, measured scaling
   adr/              one record per major decision
   PRD.md            the original design spec
-  screenshots/      the images in this README
 .claude/agents/     subagents for parallel work, one per package plus a read-only verifier
+.claude/skills/     how-tos: ADRs, API changes, reading the databases, CodeGraph, style, git, stack
+AGENTS.md           the same rules for non-Claude agents
+PERFORMANCE_REVIEW.md   hot path cost, measured numbers, knobs, next levers
+REPOSITORY_ANALYSIS.md  size, test coverage, risks and debt
 CLAUDE.md           how to work in this repo; each package has its own CLAUDE.md too
 ```
 
@@ -110,12 +115,16 @@ CLAUDE.md           how to work in this repo; each package has its own CLAUDE.md
 - Anti-clickjacking: `X-Frame-Options: DENY` and CSP `frame-ancestors 'none'` on the API (errors included) and the web server; the production preview adds a full CSP (no inline scripts), checked with zero violations. Whatever serves the built site in production must send these headers too, because `frame-ancestors` can't be set from HTML.
 - The API refuses to start in production without its own `AUTH_SECRET`.
 
+**Resilience**
+- Redis down: every route that needs it answers 503 in milliseconds, decided from the client's connection state before any command is sent; the product page still renders. Mongo down: 503 within 2 s instead of 30. The worker keeps longer retries so a short blip doesn't fill the DLQ.
+- A saturated process sheds requests with 503 + `retry-after` instead of slowing down for everyone. Shedding happens before the purchase gate, so a shed request never holds a unit. ADR 0011.
+
 ## API
 
 | Method | Path | Auth | Response |
 |---|---|---|---|
-| GET | `/api/sale` | no | `{ status, startsAt, endsAt, totalStock, stockLeft }`; status is `upcoming` / `active` / `ended` / `sold_out` |
-| GET | `/api/product` | no | Name, price, photos, specs. Cacheable (`max-age=60`). 404 if not seeded. |
+| GET | `/api/sale` | no | `{ status, startsAt, endsAt, totalStock, stockLeft }`; status is `upcoming` / `active` / `ended` / `sold_out`. A CDN may cache it 1 s (`s-maxage=1`). |
+| GET | `/api/product` | no | Name, price, photos, specs. Cached 60 s in the API and cacheable (`max-age=60`). 404 if not seeded. Still served while Redis is down. |
 | POST | `/api/purchase` | yes | 202 `pending`, 409 `already_purchased`, 410 `sold_out`, 403 `upcoming` / `ended`, 401 not logged in, 429 `rate_limited`, 503 `unavailable`. Optional `Idempotency-Key` header: a retry with the same key gets the original response (`Idempotent-Replayed: true`), or 409 `in_progress` while the first is still running. |
 | GET | `/api/purchase/me` | yes | `{ userId, status }`; status is `none` / `pending` / `confirmed`. Only your own. |
 | POST | `/api/auth/register` | no | `{ email, password }` → 201 and a session cookie; 400 invalid email or weak password; 409 email taken |
@@ -125,8 +134,9 @@ CLAUDE.md           how to work in this repo; each package has its own CLAUDE.md
 | POST | `/api/auth/forgot` | no | 202 with the same message whether or not the email has an account |
 | POST | `/api/auth/reset` | no | `{ token, password }` → 200 and a session cookie; 400 invalid or expired link |
 | GET | `/health` | no | 200 when Redis and Mongo respond, else 503 |
+| GET | `/docs` | no | Swagger UI for this table, from `apps/api/openapi.yaml` |
 
-Every response carries the anti-clickjacking and `nosniff` headers. Errors are `{ error, message }`, with `message` meant for people.
+Any route except `/api/product` answers 503 `unavailable` at once while Redis is unreachable, and 503 with `retry-after: 1` while the process is saturated (event loop lag past `MAX_EVENT_LOOP_LAG_MS`). Every response carries the anti-clickjacking and `nosniff` headers. Errors are `{ error, message }`, with `message` meant for people.
 
 ## Ops CLI
 
@@ -162,6 +172,7 @@ All in `.env` (copy `.env.example`). Defaults work for local development.
 | `API_PROCESSES` | 1 | API processes on this host (cluster mode) |
 | `RATE_LIMIT_MAX` | 5 | Purchases per account per second |
 | `AUTH_RATE_LIMIT_MAX` | 10 | Log in / sign up / reset attempts per IP per minute |
+| `MAX_EVENT_LOOP_LAG_MS` | 200 | Shed requests with 503 past this event loop lag; 0 turns it off |
 | `AUTH_SECRET` | dev value | Signs sessions. Required (32+ chars) in production |
 | `WEB_URL` | http://localhost:5173 | Links in reset emails |
 | `COOKIE_SECURE` | on in production | Session cookie only over HTTPS |
@@ -173,11 +184,13 @@ All in `.env` (copy `.env.example`). Defaults work for local development.
 
 | Layer | Command | What it proves | Count |
 |---|---|---|---|
-| Unit | `pnpm test` | Gate logic, auth (tokens, hashing, forged and expired sessions), idempotency keys, CLI commands and validation, React pages and components | 263 |
+| Unit | `pnpm test` | Gate logic, auth (tokens, hashing, forged and expired sessions), idempotency keys, CLI commands and validation, React pages and components | 267 |
 | Property-based | part of `pnpm test` | fast-check runs hundreds of random purchase/release sequences and concurrent bursts against a plain reference model of the rules | 7 properties |
-| Integration | `pnpm test:integration` | Every endpoint and status code, idempotent retries and concurrent duplicates, real Redis and Mongo, the cluster entry point, a real BullMQ worker and DLQ, every CLI command | 124 |
+| Integration | `pnpm test:integration` | Every endpoint and status code, idempotent retries and concurrent duplicates, real Redis and Mongo, the cluster entry point, a real BullMQ worker and DLQ, every CLI command | 136 |
 | Mutation | `pnpm test:mutation` | Stryker changes the code (flip a `<`, drop a branch) and checks a test fails each time | 100% on core, api, worker, cli |
 | End-to-end | `pnpm test:e2e` | Real Chromium, real stack: buy flow, the race for the last unit, sign up, forgot and reset password, SEO tags, a hostile page failing to frame the shop | 11 |
+| Contract (Python) | `pnpm test:python` | pytest against the running API: every status code it sees must be in `openapi.yaml`, plus security headers and cache headers. Read only | 7 |
+| Lint | `pnpm lint` | ESLint 10 flat config (`eslint.config.mjs`), typescript-eslint, react-hooks | 0 problems |
 | Stress | `pnpm stress` | 26,000 requests across 3 scenarios, then invariant checks | 3 scenarios |
 
 ```bash
@@ -186,6 +199,9 @@ pnpm test:mutation                       # a few minutes
 AUTH_RATE_LIMIT_MAX=1000 pnpm dev        # then, in another terminal:
 npx playwright install chromium          # one time
 pnpm test:e2e
+
+python3 -m venv .venv && .venv/bin/pip install -r tests/python/requirements.txt   # one time
+pnpm test:python                         # needs a running API (pnpm dev) and pnpm cli seed
 ```
 
 The e2e suite logs in many times a minute from one IP, which is exactly what the auth rate limit is there to stop, hence the raised limit for that run.
@@ -234,11 +250,16 @@ Past two processes the shared Redis and the CPU the load generator also needs be
 - **"Pending" before "confirmed".** The page shows that state instead of hiding it behind a spinner.
 - **Login required to buy.** One extra step for the buyer, and it's what makes "one per user" mean one per real account instead of one per typed string.
 - **Single Redis instance**: the bottleneck and single point of failure if traffic outgrows one box. First thing to change for production.
+- **No waiting room, no timed stock holds.** The Redis gate answers in about a millisecond, so there's no slow backend for a waiting room to protect; rate limits and the queue shape the spike. The brief has no payment step, so a reservation is final and nothing needs to expire.
 - **No real email**: the outbox stands in for a provider, so password reset works end to end without a third-party account.
 
 ## Docs
 
+- **Docs site**: `pnpm docs` serves the Mintlify site on http://localhost:3333: guides, the flow screenshots, and an API reference generated from the OpenAPI spec.
+- **Swagger UI**: http://localhost:3000/docs on the running API (raw spec at `/docs/json`). The spec is `apps/api/openapi.yaml`; a test fails if a route is missing from it.
+- [`PERFORMANCE_REVIEW.md`](PERFORMANCE_REVIEW.md): what a purchase costs, every measured number, how to reproduce, which knob to turn
+- [`REPOSITORY_ANALYSIS.md`](REPOSITORY_ANALYSIS.md): shape, size, coverage, risks ranked by production impact
 - [`docs/architecture.md`](docs/architecture.md): diagram, request walkthrough, failure handling, scaling numbers, known limits
 - [`docs/adr/`](docs/adr/README.md): the reasoning behind each major choice
 - [`stress/README.md`](stress/README.md): stress test design and full results
-- [`CLAUDE.md`](CLAUDE.md): working in this repo, alone or with parallel agents
+- [`CLAUDE.md`](CLAUDE.md) and [`AGENTS.md`](AGENTS.md): working in this repo, alone or with parallel agents. Skills in `.claude/skills/`; `codegraph init -i .` builds a local symbol graph (gitignored)

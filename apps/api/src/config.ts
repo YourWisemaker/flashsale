@@ -13,6 +13,8 @@ export interface AppConfig {
   webUrl: string;
   /** Session cookie only over HTTPS. On whenever NODE_ENV=production. */
   cookieSecure: boolean;
+  /** Event loop lag (ms) past which this process sheds requests with 503. 0 turns it off. */
+  maxEventLoopLagMs: number;
 }
 
 // Fine on a laptop, and the reason production refuses to start without its own.
@@ -37,5 +39,6 @@ export function loadConfig(env: NodeJS.ProcessEnv): AppConfig {
     authSecret,
     webUrl: env.WEB_URL ?? env.VITE_SITE_URL ?? "http://localhost:5173",
     cookieSecure: production || env.COOKIE_SECURE === "true",
+    maxEventLoopLagMs: Number(env.MAX_EVENT_LOOP_LAG_MS ?? 200),
   };
 }

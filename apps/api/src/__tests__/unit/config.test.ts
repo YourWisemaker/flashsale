@@ -13,6 +13,7 @@ describe("loadConfig", () => {
       authSecret: DEV_AUTH_SECRET,
       webUrl: "http://localhost:5173",
       cookieSecure: false,
+      maxEventLoopLagMs: 200,
     });
   });
 
@@ -24,8 +25,9 @@ describe("loadConfig", () => {
       AUTH_SECRET: "x".repeat(40),
       WEB_URL: "https://shop.example",
       COOKIE_SECURE: "true",
+      MAX_EVENT_LOOP_LAG_MS: "0",
     });
-    expect(config).toMatchObject({ port: 4000, rateLimitMax: 50, authRateLimitMax: 3, authSecret: "x".repeat(40), webUrl: "https://shop.example", cookieSecure: true });
+    expect(config).toMatchObject({ maxEventLoopLagMs: 0, port: 4000, rateLimitMax: 50, authRateLimitMax: 3, authSecret: "x".repeat(40), webUrl: "https://shop.example", cookieSecure: true });
   });
 
   it("has a development secret long enough for session signing", () => {

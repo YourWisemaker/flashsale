@@ -7,8 +7,12 @@ import { createOrderQueue } from "./queue.js";
 const config = loadConfig(process.env);
 
 async function startInstance() {
-  const redis = createRedisClient(config.redisUrl);
-  const { db } = await connectMongo(config.mongoUrl);
+  // Fail fast while a dependency is down instead of letting requests pile
+  // up behind reconnects (ioredis default: 20 retries; Mongo: 30s server
+  // selection). API only: the worker keeps the patient defaults so a short
+  // blip doesn't push jobs to the DLQ.
+  const redis = createRedisClient(config.redisUrl, { maxRetriesPerRequest: 1 });
+  const { db } = await connectMongo(config.mongoUrl, { serverSelectionTimeoutMS: 2000 });
   const queue = createOrderQueue(createQueueConnection(config.redisUrl));
   const saleGate = new SaleGate(redis);
 
@@ -22,6 +26,7 @@ async function startInstance() {
     sessions: createSessionTokens(config.authSecret),
     webUrl: config.webUrl,
     cookieSecure: config.cookieSecure,
+    maxEventLoopLagMs: config.maxEventLoopLagMs,
   });
 
   await app.listen({ port: config.port, host: "0.0.0.0" });

@@ -1,0 +1,24 @@
+---
+title: Ops CLI
+description: Seed, clean up, replay and reconcile from one command.
+---
+
+`pnpm cli` opens a numbered menu. `pnpm cli <command>` runs one directly, for scripts. Commands that delete data ask first (type `yes`), or take `--yes`, and print which databases they'll touch.
+
+| Command | What it does |
+|---|---|
+| `status` | Sale, product, accounts, buyers, orders and queue at a glance |
+| `migrate` | Create Mongo indexes (safe to re-run) |
+| `seed [--stock N] [--start ISO\|now] [--end ISO \| --minutes N] [--force]` | Migrate, write the product, seed the sale window and the demo account |
+| `product:inject [--file product.json]` | Write the product (validated); default is the built-in one |
+| `product:clean` | Remove the product display data |
+| `user:create <email> <password>` | Create a login |
+| `user:delete <email>` | Delete a login and its purchase data |
+| `user:clean <userId>` | Free one account's unit (atomically, back into stock), delete their order and queued job |
+| `users:clean` | Delete every order, buyer and queued job; stock back to full |
+| `reset` | Delete everything: sale, buyers, queue, orders, product, accounts, emails |
+| `dlq:replay` | Move failed jobs back onto the queue |
+| `reconcile` | Rebuild Redis buyers and stock from Mongo plus the queue, after a Redis loss |
+| `outbox [email]` | Show the latest emails the app sent, e.g. reset links |
+
+`pnpm seed`, `pnpm dlq:replay` and `pnpm reconcile` are shortcuts for the matching commands.

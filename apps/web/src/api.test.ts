@@ -102,6 +102,13 @@ describe("auth calls", () => {
     expect(await login("a@example.com", "x")).toEqual({ ok: false, message: "Too many attempts. Wait a moment and try again." });
   });
 
+  it("says the shop is down, not the network, when the API answers 503 unavailable", async () => {
+    respondWith(503, { status: "unavailable" });
+    expect(await login("a@example.com", "x")).toEqual({ ok: false, message: "Something's down on our end, try again in a moment." });
+    respondWith(503, { status: "unavailable" });
+    expect(await forgotPassword("a@example.com")).toEqual({ ok: false, message: "Something's down on our end, try again in a moment." });
+  });
+
   it("returns a generic message when the API gives none or can't be reached", async () => {
     respondWith(500, {});
     expect(await login("a@example.com", "x")).toEqual({ ok: false, message: "Couldn't reach the server. Try again." });

@@ -42,6 +42,13 @@ export interface Product {
 export type AuthResult = { ok: true; email: string } | { ok: false; message: string };
 
 const NETWORK_ERROR = "Couldn't reach the server. Try again.";
+const UNAVAILABLE = "Something's down on our end, try again in a moment.";
+
+/** The API's own message, or a fallback. A 503 `{ status: "unavailable" }` carries no message, but it isn't a network error either. */
+function messageFrom(data: { message?: unknown; status?: unknown }): string {
+  if (typeof data.message === "string") return data.message;
+  return data.status === "unavailable" ? UNAVAILABLE : NETWORK_ERROR;
+}
 const json = { "Content-Type": "application/json" };
 
 export async function fetchSale(): Promise<SaleSnapshot> {
@@ -99,7 +106,7 @@ async function authCall(path: string, body: object): Promise<AuthResult> {
     const res = await fetch(path, { method: "POST", headers: json, body: JSON.stringify(body) });
     const data = await res.json().catch(() => ({}));
     if (res.ok && typeof data.email === "string") return { ok: true, email: data.email };
-    return { ok: false, message: typeof data.message === "string" ? data.message : NETWORK_ERROR };
+    return { ok: false, message: messageFrom(data) };
   } catch {
     return { ok: false, message: NETWORK_ERROR };
   }
@@ -118,7 +125,7 @@ export async function forgotPassword(email: string): Promise<{ ok: boolean; mess
   try {
     const res = await fetch("/api/auth/forgot", { method: "POST", headers: json, body: JSON.stringify({ email }) });
     const data = await res.json().catch(() => ({}));
-    return { ok: res.ok, message: typeof data.message === "string" ? data.message : NETWORK_ERROR };
+    return { ok: res.ok, message: messageFrom(data) };
   } catch {
     return { ok: false, message: NETWORK_ERROR };
   }

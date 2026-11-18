@@ -43,7 +43,7 @@ Locally the load balancer box isn't run; `API_PROCESSES=N` gives N API processes
 
 **Ops CLI.** `pnpm cli` (`apps/cli`) does everything an operator needs against Redis and Mongo: seed, inject product, clean up one user or all, reset, create and delete accounts, read the outbox, replay the DLQ, reconcile Redis from Mongo. Cleaning up a user goes through `release.lua`, so their unit returns to stock atomically.
 
-**Product display data.** One Mongo document (name, price, photos, specs) written by the seed and served by `GET /api/product` with `Cache-Control: public, max-age=60`, so a CDN or the browser absorbs page-load traffic. It's deliberately separate from the sale: stock and the window live in Redis, and nothing on the purchase path reads Mongo.
+**Product display data.** One Mongo document (name, price, photos, specs) written by the seed and served by `GET /api/product` from a 60-second in-process cache with `Cache-Control: public, max-age=60`, so a CDN, the browser, or the API's memory absorbs page-load traffic instead of Mongo. It's deliberately separate from the sale: stock and the window live in Redis, and nothing on the purchase path reads Mongo.
 
 **Redis.** Two jobs, both justified in the ADRs: the atomic purchase gate (window, dedupe, stock) via Lua scripts, and the backing store for the BullMQ queue. One instance, so it's also the one component this design doesn't horizontally scale (see "Known limits" below).
 
@@ -52,6 +52,8 @@ Locally the load balancer box isn't run; `API_PROCESSES=N` gives N API processes
 **MongoDB.** The system of record for confirmed orders. One collection, one document shape, one unique index. Queried by the status endpoint and by the stress harness's invariant checks.
 
 **DLQ (BullMQ's failed set).** A job that fails 5 times (exponential backoff) lands here instead of disappearing. `pnpm cli dlq:replay` moves failed jobs back onto the queue once whatever broke (usually Mongo being unreachable) is fixed.
+
+**Fail fast and load shedding.** One app-level hook runs before everything else: while the Redis connection isn't ready it answers 503 without sending a command (the product route is exempt), and while event loop lag is past `MAX_EVENT_LOOP_LAG_MS` it answers 503 with `retry-after: 1`. The API's Redis client gives up after one reconnect attempt and its Mongo client after 2 s, so an outage costs users a quick error instead of a hang. `GET /api/sale` sends `s-maxage=1` so a CDN can collapse polling to one read per second per edge. See ADR 0011.
 
 ## Request walkthrough
 

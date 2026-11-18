@@ -1,0 +1,24 @@
+---
+title: Idempotency keys
+description: Safe retries when a response gets lost.
+---
+
+A duplicate order is already impossible. What a key fixes is a lost response: the phone drops signal right after the server reserved the unit, the client retries, and the retry says "already purchased". That reads as a failure even though the user owns the pair.
+
+## How it works
+
+Send `Idempotency-Key: <8 to 128 of A-Z a-z 0-9 _ ->` on `POST /api/purchase`.
+
+1. The API claims `idem:<account>:<key>` with `SET NX EX 86400`. Of several concurrent requests with one key, exactly one runs.
+2. A key that already has an answer gets it back, with `Idempotent-Replayed: true`.
+3. A key still in flight gets 409 `{ status: "in_progress" }`.
+4. Every answer is stored for 24 hours except a 503, which is worth retrying, so the key is released.
+5. If Redis can't record the key, the purchase answers 503 instead of running unprotected.
+
+```bash
+curl -i -X POST http://localhost:3000/api/purchase \
+  -H "Cookie: session=<token>" \
+  -H "Idempotency-Key: 3f2b9c1e-7d4a-4a8e-9b1c-2e5f6a7b8c9d"
+```
+
+The storefront sends `crypto.randomUUID()` per click and retries once, with the same key, on a network error. ADR 0010.

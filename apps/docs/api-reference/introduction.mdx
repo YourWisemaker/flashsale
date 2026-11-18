@@ -1,0 +1,32 @@
+---
+title: API reference
+description: Every endpoint and status code. The same spec powers Swagger UI on the running API.
+---
+
+The spec lives in `apps/api/openapi.yaml`. The running API serves it as Swagger UI at http://localhost:3000/docs, with the raw spec at `/docs/json` and `/docs/yaml`. A test fails if a route is served but not documented, or documented but not served.
+
+<Frame caption="Swagger UI at /docs on the running API.">
+  <img src="/images/swagger-ui.png" alt="Swagger UI" />
+</Frame>
+
+<Note>
+The API sends no CORS headers, so "Try it" on this site can't call `localhost:3000` from `localhost:3333`. Make live calls from Swagger UI at `/docs`, which is served by the API itself.
+</Note>
+
+## Auth
+
+Buying and "did I get one" need the `session` cookie, set by register, login and reset. In Swagger UI, log in through `POST /api/auth/login` first; the browser keeps the cookie.
+
+## Errors
+
+Errors are `{ error, message }`, with `message` meant for people. Purchase outcomes are `{ status }`.
+
+| Code | When |
+|---|---|
+| 401 | No valid session |
+| 429 | Rate limited: purchases per account per second, auth per IP per minute |
+| 503 | Redis or Mongo unreachable, or the process is shedding load (`retry-after: 1`) |
+
+<Frame caption="POST /api/purchase with every response it can give.">
+  <img src="/images/swagger-purchase.png" alt="Purchase endpoint in Swagger UI" />
+</Frame>

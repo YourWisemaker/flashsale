@@ -6,7 +6,7 @@
   "scripts": {
     "cli": "tsx --env-file-if-exists=../../.env src/index.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "lint": "echo 'no lint configured for cli'",
+    "lint": "eslint .",
     "clean": "rm -rf dist",
     "test": "vitest run src/__tests__/unit",
     "test:integration": "vitest run src/__tests__/integration",

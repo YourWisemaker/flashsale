@@ -1,0 +1,12 @@
+# LF everywhere, so diffs and Lua scripts behave the same on every OS.
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.ico binary
+*.woff2 binary
+
+# Generated; collapse in GitHub diffs.
+pnpm-lock.yaml linguist-generated=true -diff
+apps/docs/api-reference/openapi.yaml linguist-generated=true
