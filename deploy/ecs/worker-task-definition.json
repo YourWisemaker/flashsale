@@ -1,0 +1,55 @@
+{
+  "family": "flashsale-worker",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": [
+    "FARGATE"
+  ],
+  "cpu": "512",
+  "memory": "1024",
+  "executionRoleArn": "arn:aws:iam::ACCOUNT:role/flashsale-ecs-execution",
+  "taskRoleArn": "arn:aws:iam::ACCOUNT:role/flashsale-ecs-task",
+  "runtimePlatform": {
+    "cpuArchitecture": "X86_64",
+    "operatingSystemFamily": "LINUX"
+  },
+  "containerDefinitions": [
+    {
+      "name": "worker",
+      "image": "replaced-by-the-release-workflow",
+      "essential": true,
+      "environment": [
+        {
+          "name": "NODE_ENV",
+          "value": "production"
+        },
+        {
+          "name": "WORKER_CONCURRENCY",
+          "value": "25"
+        }
+      ],
+      "secrets": [
+        {
+          "name": "AUTH_SECRET",
+          "valueFrom": "arn:aws:secretsmanager:REGION:ACCOUNT:secret:flashsale/auth-secret"
+        },
+        {
+          "name": "MONGO_URL",
+          "valueFrom": "arn:aws:secretsmanager:REGION:ACCOUNT:secret:flashsale/mongo-url"
+        },
+        {
+          "name": "REDIS_URL",
+          "valueFrom": "arn:aws:secretsmanager:REGION:ACCOUNT:secret:flashsale/redis-url"
+        }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/flashsale-worker",
+          "awslogs-region": "REGION",
+          "awslogs-stream-prefix": "worker"
+        }
+      },
+      "stopTimeout": 30
+    }
+  ]
+}

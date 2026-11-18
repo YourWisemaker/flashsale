@@ -34,10 +34,11 @@ Both must print nothing.
 
 ## 4. Commit message
 
-Match the history (`git log --oneline -5`): one summary line naming what changed, comma separated, no trailing period.
+Conventional Commits, checked by the husky `commit-msg` hook: `type(scope): summary`, lower-case type, no trailing period. Types: feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert. Scope: `api`, `web`, `core`, `cli`, `worker`, `ci`, `infra`, `readme`.
 
 ```
-Graceful shutdown, memory tracker, Postman collection
+feat(api): graceful shutdown on SIGTERM
+fix(web): disable Buy Now once purchased
 ```
 
 Body when the why isn't obvious: short paragraphs, plain sentences, concrete names (file, env var, ADR number). No em dashes, no marketing words, no bold-label bullets. No `Co-Authored-By` or other AI attribution trailer: commits go out under the author's name only.
@@ -63,7 +64,7 @@ The pre-push hook runs `pnpm typecheck` and the OpenAPI drift check. Never force
 ## 6. Pull request (when asked)
 
 ```bash
-gh pr create --base main --title "<summary line>" --body-file - <<'MD'
+gh pr create --base main --title "<type(scope): summary>" --body-file - <<'MD'
 ## What
 One or two sentences: what changed and why.
 

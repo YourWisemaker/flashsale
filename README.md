@@ -59,8 +59,8 @@ flashsale/
 ├── docker-compose.yml                 # Redis 7 + MongoDB 8 for local dev
 ├── docker-compose.full.yml            # whole stack in containers (production builds)
 ├── Dockerfile                         # multi-target: api, worker, web (nginx), cli
-├── deploy/nginx.conf                  # serves the web build, proxies /api, security headers
-├── .github/workflows/ci.yml           # lint, tests, e2e, mutation, Docker smoke test
+├── deploy/                            # nginx.conf (web image), ecs/ task definitions for CD
+├── .github/workflows/                 # ci.yml (tests, e2e, mutation, Docker smoke), release.yml (GHCR + ECS)
 ├── .env.example                       # every setting, with working local defaults
 ├── packages/
 │   └── core/                          # the rules, shared by every app
@@ -311,7 +311,7 @@ All in `.env` (copy `.env.example`). Defaults work for local development.
 | Contract (Python) | `pnpm test:python` | pytest against the running API: every status code it sees must be in `openapi.yaml`, plus security headers and cache headers. Read only | 7 |
 | Postman | `pnpm test:postman` | The collection in `postman/` run by newman: every endpoint, cookie session carried between requests | 14 requests, 0 failures |
 | Lint | `pnpm lint` | ESLint 10 flat config (`eslint.config.mjs`), typescript-eslint, react-hooks | 0 problems |
-| CI | GitHub Actions (`.github/workflows/ci.yml`) | Lint, typecheck, unit and integration on every push and PR; e2e; mutation on `main`; builds the Docker images and buys through nginx in the full stack | 5 jobs |
+| CI/CD | GitHub Actions: `ci.yml`, `release.yml` | CI: lint, typecheck, unit and integration on every push and PR; e2e; mutation on `main`; Docker build plus a purchase through nginx. CD: after CI passes on `main`, publishes the images to GHCR and (once AWS is configured) deploys to ECS | 2 workflows |
 | Stress | `pnpm stress` | 26,000 requests across 3 scenarios, then invariant checks | 3 scenarios |
 
 ```bash

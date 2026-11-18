@@ -59,6 +59,29 @@ The web image is not used on AWS: `pnpm --filter @flashsale/web build` with `VIT
 6. **Edge.** S3 bucket (private, CloudFront origin access control) with the web build; CloudFront with two origins (S3 default, ALB for `/api/*` and `/health`, caching disabled except what `Cache-Control` allows: `GET /api/sale` sends `s-maxage=1`). Attach a response headers policy with the CSP from `deploy/nginx.conf`. WAF with a rate-based rule.
 7. **Alarms.** 5xx and 503 rate on the ALB, DLQ size (`ZCARD bull:orders:failed` via a scheduled task or a metric from the worker), MemoryDB CPU and memory, ECS task count.
 
+## CI/CD
+
+Two GitHub Actions workflows:
+
+| Workflow | When | What |
+|---|---|---|
+| `ci.yml` | every push and PR | lint, typecheck, unit + integration (Redis and Mongo service containers), Playwright e2e, Docker build + full-stack purchase smoke test; mutation tests on `main` |
+| `release.yml` | after CI passes on `main`, or by hand | builds the `api`, `worker`, `web` and `cli` images and pushes them to GitHub Container Registry as `ghcr.io/<owner>/flashsale-<target>:<commit sha>` and `:latest`; then deploys to ECS if AWS is configured |
+
+The deploy job is opt-in. It runs only when these repository variables exist (Settings, Secrets and variables, Actions, Variables), and uses the `production` environment, so you can require a manual approval there:
+
+| Variable | Example |
+|---|---|
+| `AWS_DEPLOY_ROLE_ARN` | `arn:aws:iam::123456789012:role/github-flashsale-deploy` (trusted for GitHub OIDC, no long-lived keys) |
+| `AWS_REGION` | `ap-southeast-2` |
+| `ECR_REGISTRY` | `123456789012.dkr.ecr.ap-southeast-2.amazonaws.com` |
+| `ECS_CLUSTER` | `flashsale` |
+| `PUBLIC_URL` | `https://shop.example.com` (baked into the web build) |
+
+It copies the exact image CI tested from GHCR into ECR (no rebuild), renders `deploy/ecs/<service>-task-definition.json` with that image, and updates the ECS services `flashsale-worker` then `flashsale-api`, waiting for each to become stable. Fill in the account IDs, region and secret ARNs in those two task definition files first.
+
+The web build goes to S3 + CloudFront separately (`aws s3 sync apps/web/dist s3://<bucket>` then a CloudFront invalidation); add it as a step when the bucket exists.
+
 ## Before the sale opens
 
 - **Pre-scale, don't autoscale into the spike.** Use ECS scheduled scaling to raise the `api` and `worker` task counts 15 minutes before `startsAt`; target tracking on CPU can handle the tail.

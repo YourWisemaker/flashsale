@@ -1,0 +1,79 @@
+{
+  "family": "flashsale-api",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": [
+    "FARGATE"
+  ],
+  "cpu": "1024",
+  "memory": "2048",
+  "executionRoleArn": "arn:aws:iam::ACCOUNT:role/flashsale-ecs-execution",
+  "taskRoleArn": "arn:aws:iam::ACCOUNT:role/flashsale-ecs-task",
+  "runtimePlatform": {
+    "cpuArchitecture": "X86_64",
+    "operatingSystemFamily": "LINUX"
+  },
+  "containerDefinitions": [
+    {
+      "name": "api",
+      "image": "replaced-by-the-release-workflow",
+      "essential": true,
+      "environment": [
+        {
+          "name": "NODE_ENV",
+          "value": "production"
+        },
+        {
+          "name": "API_PROCESSES",
+          "value": "2"
+        },
+        {
+          "name": "TRUST_PROXY",
+          "value": "1"
+        },
+        {
+          "name": "WEB_URL",
+          "value": "https://shop.example.com"
+        }
+      ],
+      "secrets": [
+        {
+          "name": "AUTH_SECRET",
+          "valueFrom": "arn:aws:secretsmanager:REGION:ACCOUNT:secret:flashsale/auth-secret"
+        },
+        {
+          "name": "MONGO_URL",
+          "valueFrom": "arn:aws:secretsmanager:REGION:ACCOUNT:secret:flashsale/mongo-url"
+        },
+        {
+          "name": "REDIS_URL",
+          "valueFrom": "arn:aws:secretsmanager:REGION:ACCOUNT:secret:flashsale/redis-url"
+        }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/flashsale-api",
+          "awslogs-region": "REGION",
+          "awslogs-stream-prefix": "api"
+        }
+      },
+      "stopTimeout": 30,
+      "portMappings": [
+        {
+          "containerPort": 3000,
+          "protocol": "tcp"
+        }
+      ],
+      "healthCheck": {
+        "command": [
+          "CMD-SHELL",
+          "wget -qO- http://127.0.0.1:3000/health >/dev/null || exit 1"
+        ],
+        "interval": 10,
+        "timeout": 3,
+        "retries": 3,
+        "startPeriod": 10
+      }
+    }
+  ]
+}

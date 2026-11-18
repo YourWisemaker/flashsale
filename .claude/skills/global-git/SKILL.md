@@ -18,10 +18,11 @@ description: Branching, commit and push rules for this repo, including what must
 
 ## Messages
 
-Match the history: a short summary line naming what changed, comma separated for several things.
+Conventional Commits, enforced by the husky `commit-msg` hook: `type(scope): summary`. Types: feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert. Scope is the package or area (`api`, `web`, `core`, `cli`, `worker`, `ci`, `infra`, `readme`).
 
 ```
-Load shedding, Swagger UI, Mintlify docs
+feat(api): add load shedding and Swagger UI
+fix(ci): mongo service health check
 ```
 
 Body only when the why isn't obvious: plain sentences, no em dashes, no bold-label bullets. No `Co-Authored-By` or other AI attribution trailer. Never `--no-verify`, never force-push `main`, never rewrite pushed history.
