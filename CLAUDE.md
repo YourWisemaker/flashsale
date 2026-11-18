@@ -45,7 +45,7 @@ pnpm --filter @flashsale/<core|api|worker|cli|web|stress> run <script>
 - `.claude/agents/`: one agent per package plus a read-only `verifier`.
 - `codegraph init -i .` (once) then `codegraph impact <symbol>` before changing anything in `packages/core`. `.codegraph/` is gitignored.
 - `AGENTS.md` repeats the rules for non-Claude agents. Change an invariant here, change it there too.
-- Plugins `superpowers` and `ponytail` are enabled in `.claude/settings.json`. This repo's own plugin, `.claude/plugins/flash-sale-arief` (skills: `investigate`, `app-server-mutation-testing`, `verify-and-log`), loads with `claude --plugin-dir .claude/plugins/flash-sale-arief`.
+- Plugins `superpowers` and `ponytail` are enabled in `.claude/settings.json`. This repo's own plugin, `.claude/plugins/flash-sale-arief` (skills: `investigate`, `app-server-mutation-testing`, `verify-and-log`, `commit-and-pr`), loads with `claude --plugin-dir .claude/plugins/flash-sale-arief`.
 - `agent-os/` holds the standards the skills point to, plus spec/task commands. Plans: `docs/superpowers/plans/` and `.pi/plans/`.
 - Serena (`.serena/`, `.mcp.json`) gives symbol-level navigation; its browser dashboard is off.
 - Git hooks (husky): pre-commit runs lint-staged (eslint --fix), pre-push runs typecheck and the docs spec drift check. Don't bypass them with `--no-verify`.

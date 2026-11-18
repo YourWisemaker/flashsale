@@ -2,9 +2,9 @@
 
 A flash sale for one limited-edition product: a configurable sale window, fixed stock, one unit per account, built to hold up when thousands of people press "Buy Now" in the same second. Fastify API, BullMQ worker, React storefront, Redis for the hot path, MongoDB for the durable record, in a pnpm + Turborepo monorepo.
 
-| Shop | Log in |
-|---|---|
-| ![Shop page, logged in](apps/docs/images/shop.png) | ![Log in page](apps/docs/images/login.png) |
+| Shop | Log in | Phone |
+|---|---|---|
+| ![Shop page, logged in](apps/docs/images/shop-desktop.png) | ![Log in page](apps/docs/images/login-page.png) | ![Shop page on a phone](apps/docs/images/shop-phone.png) |
 
 ## Test account
 
@@ -21,7 +21,7 @@ Needs Node 20+, pnpm, and Redis + MongoDB (Docker or local installs).
 ```bash
 docker compose up -d        # Redis + MongoDB (or run redis-server / mongod yourself)
 cp .env.example .env        # working defaults for local development
-pnpm install
+pnpm install                # also installs the git hooks (husky)
 pnpm build                  # builds packages/core first; the apps import its compiled output
 pnpm cli seed               # indexes, product, sale window (starts in 1 minute), demo account
 pnpm dev                    # API :3000, worker, web :5173
@@ -31,7 +31,7 @@ Open http://localhost:5173 and log in with the test account. To start the sale r
 
 ## How it works
 
-A purchase never touches the database. The API checks the session cookie (a signature check in memory), then runs one atomic Redis Lua script that checks the sale window against Redis's own clock, checks whether this account already bought, checks stock, and decrements, all in one round trip. Two requests racing for the last unit can't both win. A winner is handed to a queue (BullMQ, on the same Redis); a worker confirms it into MongoDB. Everything else (product details, accounts, password resets) lives off that path.
+A purchase never touches the database. A load-shedding hook first answers 503 if Redis is unreachable or the process is saturated. Then the API checks the session cookie (a signature check in memory), then runs one atomic Redis Lua script that checks the sale window against Redis's own clock, checks whether this account already bought, checks stock, and decrements, all in one round trip. Two requests racing for the last unit can't both win. A winner is handed to a queue (BullMQ, on the same Redis); a worker confirms it into MongoDB. Everything else (product details, accounts, password resets) lives off that path.
 
 ```mermaid
 flowchart TD
@@ -54,13 +54,13 @@ Captured in a real browser against the running stack.
 
 | | |
 |---|---|
-| ![Logged out](apps/docs/images/flow/01-logged-out.jpg) **1. Logged out.** The sale is live; buying needs an account. | ![Log in](apps/docs/images/flow/02-login.jpg) **2. Log in.** |
-| ![Logged in](apps/docs/images/flow/03-logged-in.jpg) **3. Logged in.** "Buying as" shows who the purchase is for. | ![Pending](apps/docs/images/flow/04-pending.jpg) **4. Pending.** The unit is reserved in Redis; the worker hasn't confirmed it yet. |
-| ![Confirmed](apps/docs/images/flow/05-confirmed.jpg) **5. Confirmed.** Stock drops to 99. | ![Already purchased](apps/docs/images/flow/06-already-purchased.jpg) **6. Second click.** One per account. |
-| ![Sold out](apps/docs/images/flow/07-sold-out.jpg) **7. Sold out.** The button disables and the page says why. | ![Register](apps/docs/images/flow/08-register.jpg) **8. Sign up.** |
-| ![Forgot password](apps/docs/images/flow/09-forgot-password.jpg) **9. Forgot password.** Same answer whether or not the email has an account. | ![Reset password](apps/docs/images/flow/10-reset-password.jpg) **10. Reset password**, from the emailed one-time link. |
+| ![Logged out](apps/docs/images/flows/01-logged-out.jpg) **1. Logged out.** The sale is live; buying needs an account. | ![Log in](apps/docs/images/flows/02-login.jpg) **2. Log in.** |
+| ![Logged in](apps/docs/images/flows/03-logged-in.jpg) **3. Logged in.** "Buying as" shows who the purchase is for. | ![Pending](apps/docs/images/flows/04-pending.jpg) **4. Pending.** The unit is reserved in Redis; the worker hasn't confirmed it yet. |
+| ![Confirmed](apps/docs/images/flows/05-confirmed.jpg) **5. Confirmed.** Stock drops to 99. | ![Already purchased](apps/docs/images/flows/06-already-purchased.jpg) **6. Second click.** One per account. |
+| ![Sold out](apps/docs/images/flows/07-sold-out.jpg) **7. Sold out.** The button disables and the page says why. | ![Register](apps/docs/images/flows/08-register.jpg) **8. Sign up.** |
+| ![Forgot password](apps/docs/images/flows/09-forgot-password.jpg) **9. Forgot password.** Same answer whether or not the email has an account. | ![Reset password](apps/docs/images/flows/10-reset-password.jpg) **10. Reset password**, from the emailed one-time link. |
 
-On a phone it stacks into one column: [screenshot](apps/docs/images/shop-mobile.png).
+On a phone it stacks into one column (third screenshot at the top).
 
 ## Repo structure
 
@@ -80,11 +80,12 @@ tests/python/ Black-box contract tests (pytest) against the running API.
 postman/     Postman collection + local environment (pnpm test:postman runs it with newman).
 docs/
   architecture.md   diagram, request walkthrough, failure handling, measured scaling
-  adr/              one record per major decision
+  adr/              one record per major decision (0001 to 0013)
   PRD.md            the original design spec
+  verification-log.md  dated results of the full check matrix
 .claude/agents/     subagents for parallel work, one per package plus a read-only verifier
 .claude/skills/     how-tos: ADRs, API changes, reading the databases, CodeGraph, style, git, stack, frontend
-.claude/plugins/flash-sale-arief/  Claude plugin: investigate, app-server-mutation-testing, verify-and-log
+.claude/plugins/flash-sale-arief/  Claude plugin: investigate, app-server-mutation-testing, verify-and-log, commit-and-pr
 AGENTS.md           the same rules for non-Claude agents
 agent-os/           Agent OS: product mission and roadmap, standards, spec/task commands
 docs/superpowers/plans/  implementation plans for the work in this repo; .pi/plans/ for Pi
@@ -235,6 +236,8 @@ Each of these passed every test that existed before it:
 - `reconcile` dropped users whose job was in the DLQ, which would have resold their unit after a replay: an oversell. Found by mutation testing.
 - The login page carried two contradicting robots tags, and a rate-limited login said "Couldn't reach the server". Found by e2e.
 - A test for "tampered password hash" was itself flaky: the last base64 character's low bits don't decode to anything.
+- Routes that read Mongo answered 500 after a 2 s wait when Mongo was down, while the docs promised 503. Found by checking the docs against a dead-Mongo test; fixed with an error handler that maps Mongo outage errors to 503.
+- A server 503 on log in or sign up showed "Couldn't reach the server". Found in review; the web app now says the shop is down.
 - Mutation testing kept finding a setup trap: when a `beforeAll` throws, Vitest skips the tests instead of failing them. Setup now runs in `beforeEach` or inside the test.
 
 ## Stress tests
@@ -247,7 +250,9 @@ pnpm stress
 
 Virtual users carry signed session cookies, as if they'd logged in before the sale opened, which is what real flash-sale traffic looks like. Three scenarios: 10,000 users racing for 100 units, 1 user firing 1,000 concurrent attempts, and 5,000 users each clicking 3 times against 2,000 units. After each, the script waits for the queue to drain and checks Redis and Mongo directly.
 
-Expected outcome, and the last run: every invariant passes. Exactly 100 / 1 / 2,000 confirmed orders, zero duplicates, stock never negative, Redis and Mongo agree. 14,000 to 18,000 req/s from a single client process, p99 115 ms at worst, and the jobs split 1,043 / 1,058 between the two workers. Full output and how to read it: [`stress/README.md`](stress/README.md).
+Expected outcome: every invariant passes. Exactly 100 / 1 / 2,000 confirmed orders, zero duplicates, stock never negative, Redis and Mongo agree.
+
+Latest run (2026-11-18, load shedding and graceful shutdown in place): all invariants pass, 13,700 to 16,800 req/s from a single client process, p99 76 ms at worst. The client is the limit, not the server (see Scaling). An earlier run's full output, including the job split between the two workers, and how to read it: [`stress/README.md`](stress/README.md).
 
 ## Scaling
 
@@ -279,5 +284,6 @@ Past two processes the shared Redis and the CPU the load generator also needs be
 - [`REPOSITORY_ANALYSIS.md`](REPOSITORY_ANALYSIS.md): shape, size, coverage, risks ranked by production impact
 - [`docs/architecture.md`](docs/architecture.md): diagram, request walkthrough, failure handling, scaling numbers, known limits
 - [`docs/adr/`](docs/adr/README.md): the reasoning behind each major choice
+- [`docs/verification-log.md`](docs/verification-log.md): what was checked before each change shipped, with real counts
 - [`stress/README.md`](stress/README.md): stress test design and full results
-- [`CLAUDE.md`](CLAUDE.md) and [`AGENTS.md`](AGENTS.md): working in this repo, alone or with parallel agents. Skills in `.claude/skills/`; `codegraph init -i .` builds a local symbol graph (gitignored)
+- [`CLAUDE.md`](CLAUDE.md) and [`AGENTS.md`](AGENTS.md): working in this repo, alone or with parallel agents. Skills in `.claude/skills/`, the repo's plugin in `.claude/plugins/flash-sale-arief` (`claude --plugin-dir .claude/plugins/flash-sale-arief`); `codegraph init -i .` builds a local symbol graph (gitignored)

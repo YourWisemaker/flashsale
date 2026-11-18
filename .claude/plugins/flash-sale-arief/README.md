@@ -1,12 +1,13 @@
 # flash-sale-arief
 
-A Claude Code plugin for this repo. Three skills that string the repo's own tools together into the workflows that come up most.
+A Claude Code plugin for this repo. Four skills that string the repo's own tools together into the workflows that come up most.
 
 | Skill | Use when |
 |---|---|
 | `investigate` | Something is wrong (oversell suspicion, stuck "pending", 503s, slow purchases, a leak) and you need the cause, not a guess |
 | `app-server-mutation-testing` | You changed `apps/api` logic or a test, or Stryker reports survivors |
 | `verify-and-log` | You think a change is done: run the definition-of-done checks and append the result to `docs/verification-log.md` |
+| `commit-and-pr` | The user asks to commit, push or open a PR: stage only what belongs, write the message in the repo's style, open the PR with `gh` |
 
 ## Load it
 
@@ -28,6 +29,7 @@ Skills then show up as `flash-sale-arief:investigate` and so on. Check the manif
     investigate/SKILL.md
     app-server-mutation-testing/SKILL.md
     verify-and-log/SKILL.md
+    commit-and-pr/SKILL.md
 ```
 
 The skills lean on the project skills in `.claude/skills/` (`read-database`, `codegraph`, `backend-api`) and the invariants in the root `CLAUDE.md`. They don't repeat them.

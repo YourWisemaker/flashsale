@@ -40,6 +40,8 @@ Each of these passed every test that existed before it:
 - `reconcile` dropped users whose job was in the DLQ, which would have resold their unit after a replay: an oversell. Found by mutation testing.
 - The login page carried two contradicting robots tags, and a rate-limited login said "Couldn't reach the server". Found by e2e.
 - A test for "tampered password hash" was itself flaky: the last base64 character's low bits don't decode to anything.
+- Routes that read Mongo answered 500 after a 2 s wait when Mongo was down, while the docs promised 503. Found by checking the docs against a dead-Mongo test; fixed with an error handler that maps Mongo outage errors to 503.
+- A server 503 on log in or sign up showed "Couldn't reach the server". Found in review; the web app now says the shop is down.
 - Mutation testing kept finding a setup trap: when a `beforeAll` throws, Vitest skips the tests instead of failing them. Setup now runs in `beforeEach` or inside the test.
 
 ## Stress tests
@@ -52,4 +54,6 @@ pnpm stress
 
 Virtual users carry signed session cookies, as if they'd logged in before the sale opened, which is what real flash-sale traffic looks like. Three scenarios: 10,000 users racing for 100 units, 1 user firing 1,000 concurrent attempts, and 5,000 users each clicking 3 times against 2,000 units. After each, the script waits for the queue to drain and checks Redis and Mongo directly.
 
-Expected outcome, and the last run: every invariant passes. Exactly 100 / 1 / 2,000 confirmed orders, zero duplicates, stock never negative, Redis and Mongo agree. 14,000 to 18,000 req/s from a single client process, p99 115 ms at worst, and the jobs split 1,043 / 1,058 between the two workers. Full output and how to read it: [`stress/README.md`](https://github.com/YourWisemaker/flashsale/blob/main/stress/README.md).
+Expected outcome: every invariant passes. Exactly 100 / 1 / 2,000 confirmed orders, zero duplicates, stock never negative, Redis and Mongo agree.
+
+Latest run (2026-11-18, load shedding and graceful shutdown in place): all invariants pass, 13,700 to 16,800 req/s from a single client process, p99 76 ms at worst. The client is the limit, not the server (see Scaling). An earlier run's full output, including the job split between the two workers, and how to read it: [`stress/README.md`](https://github.com/YourWisemaker/flashsale/blob/main/stress/README.md).

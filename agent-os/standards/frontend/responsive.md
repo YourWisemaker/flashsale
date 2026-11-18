@@ -4,4 +4,4 @@
 - `.container`: max 1200px, 16px side gutter. No horizontal scroll at 360px.
 - Images: `max-width: 100%`, `aspect-ratio` on the gallery so layout doesn't jump.
 - Tap targets at least 40px tall (`.buy__button` 12px padding).
-- Check at 390x844 (the `shop-mobile.png` screenshot) and 1280 wide before shipping a layout change.
+- Check at 390x844 (the `apps/docs/images/shop-phone.png` screenshot) and 1280 wide before shipping a layout change.

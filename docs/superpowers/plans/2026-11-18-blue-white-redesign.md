@@ -35,7 +35,7 @@
 
 ### Task 4: Screenshots
 
-**Files:** `apps/docs/images/{shop,login,shop-mobile}.png`, `apps/docs/images/flow/01..10.jpg`
+**Files:** `apps/docs/images/{shop-desktop,login-page,shop-phone}.png`, `apps/docs/images/flows/01..10.jpg`
 
 - [x] Run API and web without a worker so "pending" can be captured; clear the demo's order first (`pnpm cli user:clean demo@example.com --yes`, since `seed --force` keeps orders).
 - [x] Playwright at 1568x564 for flows, 1280x860 for shop/login, 390x844 @2x for mobile. Start the worker for "confirmed"; reseed with `--stock 1` and a second buyer for "sold out".

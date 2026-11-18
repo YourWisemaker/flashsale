@@ -12,4 +12,4 @@ Standard: `agent-os/standards/frontend/responsive.md`.
 - Images get `max-width: 100%`; the gallery keeps `aspect-ratio: 1` so the page doesn't jump while loading.
 - Buttons and links you tap are at least 40px tall.
 
-Check at 390x844 and 1280 wide (Playwright or browser devtools). The phone screenshot is `apps/docs/images/shop-mobile.png`.
+Check at 390x844 and 1280 wide (Playwright or browser devtools). The phone screenshot is `apps/docs/images/shop-phone.png`.

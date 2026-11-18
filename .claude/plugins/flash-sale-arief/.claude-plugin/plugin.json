@@ -1,7 +1,7 @@
 {
   "name": "flash-sale-arief",
-  "version": "1.0.0",
-  "description": "Workflows for the Arief Shop flash sale repo: investigate an incident, run and read mutation tests on the API, and verify a change end to end with a logged result.",
+  "version": "1.1.0",
+  "description": "Workflows for the Arief Shop flash sale repo: investigate an incident, run and read mutation tests on the API, verify a change end to end with a logged result, and commit or open a PR in the repo's style.",
   "author": {
     "name": "Arief Fitranto"
   }
