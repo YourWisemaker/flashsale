@@ -1,6 +1,6 @@
 ---
 name: api-engineer
-description: Owns apps/api: Fastify routes, rate limiting, error-to-status mapping, the cluster entry point, the seed script. Use for HTTP behavior, new endpoints, or API-level failure handling.
+description: Owns apps/api: Fastify routes (sale, purchase, auth, product), sessions and cookies, rate limits, security headers, error-to-status mapping, the cluster entry point. Use for HTTP behavior, new endpoints, or API-level failure handling.
 tools: Read, Edit, Write, Bash, Grep, Glob
 ---
 

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { attemptPurchase, fetchUserStatus } from "./api.js";
+import { attemptPurchase, fetchMyStatus } from "./api.js";
 import { PURCHASE_MESSAGES } from "./messages.js";
 
 type Outcome = keyof typeof PURCHASE_MESSAGES;
@@ -8,29 +8,30 @@ type Outcome = keyof typeof PURCHASE_MESSAGES;
 export function usePurchase() {
   const [submitting, setSubmitting] = useState(false);
   const [outcome, setOutcome] = useState<Outcome | null>(null);
-  const [pendingFor, setPendingFor] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);
 
   useEffect(() => {
-    if (!pendingFor) return;
+    if (!pending) return;
     const id = setInterval(async () => {
       // A failed poll is just retried on the next tick.
-      const status = await fetchUserStatus(pendingFor).catch(() => null);
+      const status = await fetchMyStatus().catch(() => null);
       if (status === "confirmed") {
         setOutcome("confirmed");
-        setPendingFor(null);
+        setPending(false);
       }
     }, 1500);
     return () => clearInterval(id);
-  }, [pendingFor]);
+  }, [pending]);
 
-  async function buy(userId: string) {
+  async function buy() {
     setSubmitting(true);
     setOutcome(null);
-    const result = await attemptPurchase(userId);
+    // A fresh key per click, so a retry of this click is safe and a new click is a new attempt.
+    const result = await attemptPurchase(crypto.randomUUID());
     setSubmitting(false);
     setOutcome(result.status);
-    setPendingFor(result.status === "pending" ? userId : null);
+    setPending(result.status === "pending");
   }
 
-  return { buy, submitting, pending: pendingFor !== null, outcome };
+  return { buy, submitting, pending, outcome };
 }

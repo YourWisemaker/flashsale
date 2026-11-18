@@ -1,4 +1,14 @@
-import { connectMongo, createQueueConnection, createRedisClient, ensureOrderIndexes, SaleGate } from "@flashsale/core";
+import {
+  connectMongo,
+  createQueueConnection,
+  createRedisClient,
+  createSessionTokens,
+  ensureOrderIndexes,
+  ensureResetIndexes,
+  ensureUserIndexes,
+  SaleGate,
+  SESSION_COOKIE,
+} from "@flashsale/core";
 import type { FastifyInstance } from "fastify";
 import { buildApp, type AppDeps } from "../../app.js";
 import { createOrderQueue } from "../../queue.js";
@@ -14,6 +24,9 @@ export async function setupTestApp() {
   const redis = createRedisClient(TEST_REDIS_URL);
   const { client: mongoClient, db } = await connectMongo(TEST_MONGO_URL);
   await ensureOrderIndexes(db);
+  await ensureUserIndexes(db);
+  await ensureResetIndexes(db);
+  const sessions = createSessionTokens("integration-test-secret-at-least-32-chars");
   const queueConnection = createQueueConnection(TEST_REDIS_URL);
   const queue = createOrderQueue(queueConnection);
   const saleGate = new SaleGate(redis);
@@ -22,7 +35,19 @@ export async function setupTestApp() {
   function makeApp(overrides: Partial<AppDeps> = {}): Promise<FastifyInstance> {
     // High ceiling: most tests fire many requests per second; the one
     // rate-limit test passes its own low limit.
-    return buildApp({ saleGate, redis, db, queue, rateLimitMax: 10_000, logger: false, ...overrides });
+    return buildApp({
+      saleGate,
+      redis,
+      db,
+      queue,
+      rateLimitMax: 10_000,
+      authRateLimitMax: 10_000,
+      sessions,
+      webUrl: "https://shop.test",
+      cookieSecure: false,
+      logger: false,
+      ...overrides,
+    });
   }
 
   const ctx = {
@@ -34,12 +59,18 @@ export async function setupTestApp() {
     redis,
     db,
     queue,
+    sessions,
     makeApp,
+    /** Request headers carrying a valid session for this user, as if they'd logged in. */
+    as(email: string) {
+      return { cookie: `${SESSION_COOKIE}=${sessions.sign(email)}` };
+    },
     async reset() {
       await ctx.app?.close();
       await redis.flushdb();
       await db.collection("orders").deleteMany({});
       await db.collection("products").deleteMany({});
+      for (const name of ["users", "password_resets", "outbox"]) await db.collection(name).deleteMany({});
       ctx.app = await makeApp();
     },
     async teardown() {

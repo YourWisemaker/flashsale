@@ -10,8 +10,6 @@
     "clean": "rm -rf dist",
     "lint": "echo 'no lint configured for worker'",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "dlq:replay": "tsx --env-file=../../.env src/scripts/dlq-replay.ts",
-    "reconcile": "tsx --env-file=../../.env src/scripts/reconcile.ts",
     "test": "vitest run src/__tests__/unit",
     "test:integration": "vitest run src/__tests__/integration",
     "test:mutation": "stryker run"

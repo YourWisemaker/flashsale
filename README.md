@@ -1,174 +1,244 @@
 # Arief Shop: Flash Sale System
 
-A single-product, limited-stock flash sale backend: a configurable sale window, hard stock limit, one unit per user, built to hold up when thousands of requests hit the same second.
+A flash sale for one limited-edition product: a configurable sale window, fixed stock, one unit per account, built to hold up when thousands of people press "Buy Now" in the same second. Fastify API, BullMQ worker, React storefront, Redis for the hot path, MongoDB for the durable record, in a pnpm + Turborepo monorepo.
 
-Monorepo: pnpm workspaces + Turborepo, Fastify API, BullMQ worker, React frontend, Redis for the hot path, MongoDB for the durable record.
+| Shop | Log in |
+|---|---|
+| ![Shop page, logged in](docs/screenshots/shop.png) | ![Log in page](docs/screenshots/login.png) |
 
-## Design, in one paragraph
+## Test account
 
-A purchase attempt never touches the database. It runs one atomic Redis Lua script that checks the sale window (against Redis's own clock), checks if the user already bought, checks stock, and decrements, all in one round trip, so two requests racing for the last unit can't both win. A winning request is handed to a queue (BullMQ, on the same Redis); a separate worker confirms it into MongoDB. The full reasoning, including why this replaces the "acquire lock / grant lock" pattern from the reference diagrams, is in `docs/architecture.md` and `docs/adr/`.
+| Email | Password |
+|---|---|
+| `demo@example.com` | `FlashSale2026!` |
 
-## System diagram
+Created by `pnpm cli seed`, which also resets its password, so this login always works on a freshly seeded dev setup. Development only; never seed it into a real deployment. You can also sign up with any email on the site.
 
-See `docs/architecture.md` for the full diagram and a step-by-step request walkthrough. Short version:
+## Quick start
+
+Needs Node 20+, pnpm, and Redis + MongoDB (Docker or local installs).
+
+```bash
+docker compose up -d        # Redis + MongoDB (or run redis-server / mongod yourself)
+cp .env.example .env        # working defaults for local development
+pnpm install
+pnpm build                  # builds packages/core first; the apps import its compiled output
+pnpm cli seed               # indexes, product, sale window (starts in 1 minute), demo account
+pnpm dev                    # API :3000, worker, web :5173
+```
+
+Open http://localhost:5173 and log in with the test account. To start the sale right now instead of in a minute: `pnpm cli seed --force --start now --minutes 60`.
+
+## How it works
+
+A purchase never touches the database. The API checks the session cookie (a signature check in memory), then runs one atomic Redis Lua script that checks the sale window against Redis's own clock, checks whether this account already bought, checks stock, and decrements, all in one round trip. Two requests racing for the last unit can't both win. A winner is handed to a queue (BullMQ, on the same Redis); a worker confirms it into MongoDB. Everything else (product details, accounts, password resets) lives off that path.
 
 ```mermaid
 flowchart TD
-    U["User / React app"] --> LB["Load balancer"]
+    U["Browser (React)"] -->|"HTTPS, session cookie"| LB["Load balancer"]
     LB --> API["Fastify API (N stateless processes)"]
-    API -->|"rate limit + purchase.lua: atomic check + decrement"| R[("Redis")]
-    API -->|"enqueue (jobId = order-userId)"| Q[["BullMQ queue"]]
-    Q --> W["Order worker (N instances)"]
+    API -->|"1. verify session (in memory)"| API
+    API -->|"2. rate limit per user + purchase.lua: window, dedupe, decrement"| R[("Redis")]
+    API -->|"3. enqueue (jobId = order-userId)"| Q[["BullMQ queue"]]
+    Q --> W["Order worker (N processes)"]
     W -->|"upsert, unique userId index"| M[("MongoDB")]
-    W -->|"5 failed attempts"| DLQ[["Failed set (DLQ)"]]
+    W -->|"after 5 failed attempts"| DLQ[["Failed set (DLQ)"]]
+    API -.->|"accounts, product, reset tokens, outbox (not on the purchase path)"| M
 ```
 
-## Repo layout
+The full writeup, with a request walkthrough, failure handling, and measured scaling, is in [`docs/architecture.md`](docs/architecture.md). Each major decision has an ADR in [`docs/adr/`](docs/adr/README.md).
+
+## The flow
+
+Captured in a real browser against the running stack.
+
+| | |
+|---|---|
+| ![Logged out](docs/screenshots/flow/01-logged-out.jpg) **1. Logged out.** The sale is live; buying needs an account. | ![Log in](docs/screenshots/flow/02-login.jpg) **2. Log in.** |
+| ![Logged in](docs/screenshots/flow/03-logged-in.jpg) **3. Logged in.** "Buying as" shows who the purchase is for. | ![Pending](docs/screenshots/flow/04-pending.jpg) **4. Pending.** The unit is reserved in Redis; the worker hasn't confirmed it yet. |
+| ![Confirmed](docs/screenshots/flow/05-confirmed.jpg) **5. Confirmed.** Stock drops to 99. | ![Already purchased](docs/screenshots/flow/06-already-purchased.jpg) **6. Second click.** One per account. |
+| ![Sold out](docs/screenshots/flow/07-sold-out.jpg) **7. Sold out.** The button disables and the page says why. | ![Register](docs/screenshots/flow/08-register.jpg) **8. Sign up.** |
+| ![Forgot password](docs/screenshots/flow/09-forgot-password.jpg) **9. Forgot password.** Same answer whether or not the email has an account. | ![Reset password](docs/screenshots/flow/10-reset-password.jpg) **10. Reset password**, from the emailed one-time link. |
+
+On a phone it stacks into one column: [screenshot](docs/screenshots/shop-mobile.png).
+
+## Repo structure
 
 ```
 apps/
-  api/      Fastify server: sale status, purchase, per-user status, health
-  worker/   BullMQ consumer that confirms orders into MongoDB; dlq-replay and reconcile scripts
-  web/      React + Vite storefront (public/ holds the favicon, robots.txt and product photos)
+  api/       Fastify: sale status, purchase, accounts, product. Cluster mode via API_PROCESSES.
+  worker/    BullMQ consumer: confirms reserved orders into MongoDB.
+  web/       React storefront: shop page plus log in, sign up, forgot and reset password.
+             public/ holds the favicon, robots.txt and product photos. e2e/ is Playwright.
+  cli/       pnpm cli: seed, clean up, inject product, accounts, outbox, DLQ replay, reconcile.
 packages/
-  core/     Shared domain logic: the Lua scripts, Redis/Mongo helpers, order schema, userId rules
-stress/     Load test harness + the invariant checks that prove correctness under load
+  core/      The rules, shared by everything: Lua purchase gate, Redis keys, job options,
+             orders, product, users, sessions, password reset tokens, outbox.
+stress/      Load harness: 26,000 requests, then invariant checks against Redis and Mongo.
 docs/
-  PRD.md          design spec, written and approved before any code
-  architecture.md full diagram + component writeup
-  adr/            one record per major decision, with trade-offs
+  architecture.md   diagram, request walkthrough, failure handling, measured scaling
+  adr/              one record per major decision
+  PRD.md            the original design spec
+  screenshots/      the images in this README
+.claude/agents/     subagents for parallel work, one per package plus a read-only verifier
+CLAUDE.md           how to work in this repo; each package has its own CLAUDE.md too
 ```
 
-## Build and run
+## What it does
 
-Requires Node 20+ and pnpm. Redis and MongoDB, either installed locally or via Docker.
+**The sale, per the brief**
+- Configurable start and end time; purchases outside the window are refused (`upcoming` / `ended`), checked inside Redis against Redis's clock so several API processes can't disagree.
+- One product, fixed stock, never oversold, enforced by one atomic Lua script.
+- One unit per account, enforced in the same script.
+- No duplicate orders, at three layers: the Lua gate records the buyer atomically, the queue job id is fixed per account (a second enqueue is dropped), and the order write is an upsert on a unique index. On top of that, `Idempotency-Key` makes a retried request safe: the web app sends a fresh key per click and retries once on a network error with the same key, so a lost response comes back as the original "pending" instead of "already purchased".
+- Status, purchase, and "did I get one" endpoints; a storefront showing live status, countdown, stock, and every outcome.
 
-```bash
-# 1. Infra: Redis + MongoDB
-docker compose up -d
-# (or run redis-server / mongod locally if you already have them)
+**Accounts**
+- Sign up, log in, log out. Buy Now uses the logged-in account, so nobody can buy as someone else by typing their id.
+- Forgot password emails a link that works once and expires in 30 minutes. There's no mail provider in this demo: email lands in an outbox collection, readable with `pnpm cli outbox` (the brief allows mocking cloud services). Swapping in SES or SendGrid replaces one function.
 
-# 2. Install and build
-pnpm install
-pnpm build              # builds packages/core first; apps/api and apps/worker import its compiled output
+**Storefront**
+- Marketplace-style product page: gallery, flash-sale bar with countdown, price with discount, stock meter, specs. Works down to phone width.
+- SEO: title, meta description, canonical, Open Graph, schema.org Product JSON-LD with live availability, robots.txt; account pages are `noindex`.
+- Photos by LouisBlaut, CC BY-SA 4.0, via Wikimedia Commons, cropped; credited in the page footer and `apps/web/public/products/CREDITS.md`.
 
-# 3. Copy env and seed the sale window
-cp .env.example .env    # already has working defaults; edit SALE_START/SALE_END/SALE_STOCK if you want
-pnpm seed                # writes the sale window + stock to Redis, creates the Mongo index
-
-# 4. Run everything
-pnpm dev                 # api + worker + web in parallel, via turbo
-```
-
-Then open `http://localhost:5173`. The API listens on `:3000`, proxied by Vite's dev server so there's no CORS setup needed.
-
-To run one piece at a time: `pnpm --filter @flashsale/api run dev`, `--filter @flashsale/worker`, `--filter @flashsale/web`.
-
-Production-style run of the built output, using more than one CPU core (see "Scaling" below):
-
-```bash
-API_PROCESSES=2 pnpm --filter @flashsale/api start      # 2 API processes sharing :3000
-pnpm --filter @flashsale/worker start                    # run this once per worker process you want
-```
-
-### Re-seeding
-
-`pnpm seed` refuses to overwrite an already-seeded sale; pass `-- --force` to reset it (useful when the window from `.env.example`'s relative defaults has already passed):
-
-```bash
-pnpm --filter @flashsale/api run seed -- --force
-```
+**Security**
+- Passwords hashed with scrypt, compared in constant time. Login failures give one message, and checking an unknown email costs the same time as a wrong password, so neither reveals which emails have accounts.
+- Sessions are signed JWTs (HS256 pinned, so `alg: none` and other-algorithm tokens are rejected) in an `httpOnly`, `SameSite=Strict`, `Secure`-in-production cookie: page scripts can't read it, and other sites can't make the browser send it.
+- Reset tokens are stored only as a hash, single use even under a race, and Mongo expires them on its own.
+- Rate limits: purchases per account (people behind one office IP don't block each other), log in / sign up / reset per IP per minute.
+- Anti-clickjacking: `X-Frame-Options: DENY` and CSP `frame-ancestors 'none'` on the API (errors included) and the web server; the production preview adds a full CSP (no inline scripts), checked with zero violations. Whatever serves the built site in production must send these headers too, because `frame-ancestors` can't be set from HTML.
+- The API refuses to start in production without its own `AUTH_SECRET`.
 
 ## API
 
-| Method | Path | Response |
+| Method | Path | Auth | Response |
+|---|---|---|---|
+| GET | `/api/sale` | no | `{ status, startsAt, endsAt, totalStock, stockLeft }`; status is `upcoming` / `active` / `ended` / `sold_out` |
+| GET | `/api/product` | no | Name, price, photos, specs. Cacheable (`max-age=60`). 404 if not seeded. |
+| POST | `/api/purchase` | yes | 202 `pending`, 409 `already_purchased`, 410 `sold_out`, 403 `upcoming` / `ended`, 401 not logged in, 429 `rate_limited`, 503 `unavailable`. Optional `Idempotency-Key` header: a retry with the same key gets the original response (`Idempotent-Replayed: true`), or 409 `in_progress` while the first is still running. |
+| GET | `/api/purchase/me` | yes | `{ userId, status }`; status is `none` / `pending` / `confirmed`. Only your own. |
+| POST | `/api/auth/register` | no | `{ email, password }` → 201 and a session cookie; 400 invalid email or weak password; 409 email taken |
+| POST | `/api/auth/login` | no | 200 and a session cookie; 401 "Wrong email or password." for every failure |
+| POST | `/api/auth/logout` | no | 204, cookie cleared |
+| GET | `/api/auth/me` | yes | `{ email }` or 401 |
+| POST | `/api/auth/forgot` | no | 202 with the same message whether or not the email has an account |
+| POST | `/api/auth/reset` | no | `{ token, password }` → 200 and a session cookie; 400 invalid or expired link |
+| GET | `/health` | no | 200 when Redis and Mongo respond, else 503 |
+
+Every response carries the anti-clickjacking and `nosniff` headers. Errors are `{ error, message }`, with `message` meant for people.
+
+## Ops CLI
+
+`pnpm cli` opens a numbered menu. `pnpm cli <command>` runs one directly, for scripts. Commands that delete data ask first (type `yes`), or take `--yes`, and print which databases they'll touch.
+
+| Command | What it does |
+|---|---|
+| `status` | Sale, product, accounts, buyers, orders and queue at a glance |
+| `migrate` | Create Mongo indexes (safe to re-run) |
+| `seed [--stock N] [--start ISO\|now] [--end ISO \| --minutes N] [--force]` | Migrate, write the product, seed the sale window and the demo account |
+| `product:inject [--file product.json]` | Write the product (validated); default is the built-in one |
+| `product:clean` | Remove the product display data |
+| `user:create <email> <password>` | Create a login |
+| `user:delete <email>` | Delete a login and its purchase data |
+| `user:clean <userId>` | Free one account's unit (atomically, back into stock), delete their order and queued job |
+| `users:clean` | Delete every order, buyer and queued job; stock back to full |
+| `reset` | Delete everything: sale, buyers, queue, orders, product, accounts, emails |
+| `dlq:replay` | Move failed jobs back onto the queue |
+| `reconcile` | Rebuild Redis buyers and stock from Mongo plus the queue, after a Redis loss |
+| `outbox [email]` | Show the latest emails the app sent, e.g. reset links |
+
+`pnpm seed`, `pnpm dlq:replay` and `pnpm reconcile` are shortcuts for the matching commands.
+
+## Configuration
+
+All in `.env` (copy `.env.example`). Defaults work for local development.
+
+| Variable | Default | Notes |
 |---|---|---|
-| GET | `/api/sale` | `{ status, startsAt, endsAt, totalStock, stockLeft }`, status is `upcoming` / `active` / `ended` / `sold_out` |
-| GET | `/api/product` | The product's display data (name, price, photos, specs), `Cache-Control: public, max-age=60`. 404 if not seeded. Not on the purchase path. |
-| POST | `/api/purchase` `{ userId }` | 202 `pending`, 409 `already_purchased`, 410 `sold_out`, 403 `upcoming`/`ended`, 400 `invalid_user`, 429 `rate_limited` (per IP, this route only), 503 `unavailable` (Redis or queue down) |
-| GET | `/api/purchase/:userId` | `{ userId, status }`, status is `none` / `pending` / `confirmed` |
-| GET | `/health` | 200 when Redis and Mongo both respond |
-
-Full outcome table and the reasoning behind each status code: `docs/PRD.md` section 5. Every API response, errors included, carries `X-Frame-Options: DENY`, `Content-Security-Policy: default-src 'none'; frame-ancestors 'none'`, `X-Content-Type-Options: nosniff` and `Referrer-Policy: no-referrer`.
-
-## Storefront
-
-Arief Shop's product page, modeled on a marketplace listing: photo gallery, a flash-sale bar with a live countdown, sale price against the original with the discount, a stock meter, the buy box, then specs and description. It works down to phone width.
-
-Still one product, per the brief. Its display data (name, price, photos, specs) lives in one Mongo document written by `pnpm seed` (`apps/api/src/seed/product.ts`) and served by `GET /api/product`. Nothing about it touches the purchase path: stock, the window, and who bought stay in Redis.
-
-- **SEO**: title, meta description, canonical URL, Open Graph and Twitter card tags in `apps/web/index.html`; schema.org `Product` JSON-LD with live price and availability, updated as the sale status changes; `robots.txt` keeps crawlers off `/api/`. Set `VITE_SITE_URL` to the public URL so canonical and `og:image` links are absolute.
-- **Favicon**: `apps/web/public/favicon.svg`.
-- **Anti-clickjacking**: the page can't be framed, so a hidden "Buy Now" can't be hijacked. The dev and preview servers send `X-Frame-Options: DENY` and `Content-Security-Policy: frame-ancestors 'none'`; the production preview also sends a full CSP (`default-src 'self'`, no inline scripts), checked with zero violations. `frame-ancestors` can't be set from a `<meta>` tag, so whatever serves the built files in production must send these headers too (see `apps/web/vite.config.ts`).
-- **Photos**: by LouisBlaut, CC BY-SA 4.0, via Wikimedia Commons, cropped to squares. Credited in the page footer and `apps/web/public/products/CREDITS.md`. Chosen because they show one hand-made shoe from two sides, with no brand logos.
+| `REDIS_URL`, `MONGO_URL` | localhost | |
+| `SALE_START`, `SALE_END`, `SALE_STOCK` | starts in 1 min, runs 1 h, 100 | Read by `pnpm cli seed`; flags override them |
+| `PORT` | 3000 | API |
+| `API_PROCESSES` | 1 | API processes on this host (cluster mode) |
+| `RATE_LIMIT_MAX` | 5 | Purchases per account per second |
+| `AUTH_RATE_LIMIT_MAX` | 10 | Log in / sign up / reset attempts per IP per minute |
+| `AUTH_SECRET` | dev value | Signs sessions. Required (32+ chars) in production |
+| `WEB_URL` | http://localhost:5173 | Links in reset emails |
+| `COOKIE_SECURE` | on in production | Session cookie only over HTTPS |
+| `WORKER_CONCURRENCY` | 10 | Jobs per worker process |
+| `VITE_SITE_URL` | http://localhost:5173 | Canonical and Open Graph URLs |
+| `TEST_REDIS_URL`, `TEST_MONGO_URL` | localhost | Point the test suites at other infra (parallel agents, CI) |
 
 ## Tests
 
-Six layers. Unit and integration run against real Redis and Mongo (there's no fake Redis here; the Lua scripts only mean something inside real Redis).
-
 | Layer | Command | What it proves | Count |
 |---|---|---|---|
-| Unit | `pnpm test` | Gate logic, mappers, config, seed data, React components, API client, SEO data | 105 (core 54, api 12, worker 2, web 37) |
+| Unit | `pnpm test` | Gate logic, auth (tokens, hashing, forged and expired sessions), idempotency keys, CLI commands and validation, React pages and components | 263 |
 | Property-based | part of `pnpm test` | fast-check runs hundreds of random purchase/release sequences and concurrent bursts against a plain reference model of the rules | 7 properties |
-| Integration | `pnpm test:integration` | Every endpoint and status code, 429/503 paths, security headers on errors too, the real cluster entry point, a real BullMQ worker end to end including the DLQ | 33 (api 28, worker 5) |
-| Mutation | `pnpm test:mutation` | Stryker edits the source (flip a `<`, drop a branch) and checks a test fails each time | 100% score on core, api, worker |
-| End-to-end | `pnpm test:e2e` | Real Chromium against the running stack, including SEO tags, favicon, and a hostile page failing to frame the shop | 8 |
-| Stress | `pnpm stress` | 26,000 requests across 3 scenarios, then invariant checks in Redis and Mongo | 3 scenarios |
-
-Each package's tests use their own Redis db index and Mongo database, so they run in parallel without clashing. To point them at a different Redis/Mongo (another worktree, CI), set `TEST_REDIS_URL` and `TEST_MONGO_URL`.
+| Integration | `pnpm test:integration` | Every endpoint and status code, idempotent retries and concurrent duplicates, real Redis and Mongo, the cluster entry point, a real BullMQ worker and DLQ, every CLI command | 124 |
+| Mutation | `pnpm test:mutation` | Stryker changes the code (flip a `<`, drop a branch) and checks a test fails each time | 100% on core, api, worker, cli |
+| End-to-end | `pnpm test:e2e` | Real Chromium, real stack: buy flow, the race for the last unit, sign up, forgot and reset password, SEO tags, a hostile page failing to frame the shop | 11 |
+| Stress | `pnpm stress` | 26,000 requests across 3 scenarios, then invariant checks | 3 scenarios |
 
 ```bash
-pnpm test && pnpm test:integration     # needs Redis + Mongo
-pnpm test:mutation                      # ~1 minute
-pnpm dev                                # then, in another terminal:
-npx playwright install chromium         # one time only
+pnpm test && pnpm test:integration      # needs Redis + Mongo
+pnpm test:mutation                       # a few minutes
+AUTH_RATE_LIMIT_MAX=1000 pnpm dev        # then, in another terminal:
+npx playwright install chromium          # one time
 pnpm test:e2e
 ```
 
-The e2e suite covers the seeded product with its photos actually loading, buy, pending to confirmed, a blocked second purchase, losing the race for the last unit (Playwright's clock freezes the status poll so the page still says "active" when the server has sold out), and the upcoming/ended/sold-out screens. Details in `apps/web/e2e/README.md`.
+The e2e suite logs in many times a minute from one IP, which is exactly what the auth rate limit is there to stop, hence the raised limit for that run.
 
 ### Bugs the test layers caught
 
-Worth listing, because each one passed every test that existed before it:
+Each of these passed every test that existed before it:
 
-- A numeric userId (`"12345"`) could never buy: BullMQ rejects job ids that parse as integers, so every purchase reserved, failed to enqueue, released, and returned 503. Found in review; regression test added.
-- The rate limiter answered 500 instead of 429, and Redis being down answered 500 instead of 503. Found by probing the error paths directly.
-- Completed BullMQ jobs were kept forever, and BullMQ silently ignores `add()` for an existing job id. A returning user in a re-seeded sale stayed "pending" forever. Found by the stress test running twice in a row.
-- The API cluster re-forked a process that failed at startup (port taken) forever, pinning every CPU. Found while benchmarking; it now exits instead, with a test.
-- Mutation testing found `orders.ts` and `isReserved` had no tests inside core, and that a broken `connectMongo` in a `beforeAll` makes Vitest skip tests instead of failing them.
+- A numeric userId could never buy: BullMQ rejects job ids that look like integers. Found in review.
+- The rate limiter answered 500 instead of 429, and Redis being down answered 500 instead of 503. Found by probing error paths.
+- A returning user in a re-seeded sale stayed "pending" forever: BullMQ kept completed jobs and silently ignored a re-enqueue. Found by running the stress test twice in a row.
+- The API cluster fork-looped forever when the port was taken, pinning every CPU. Found while benchmarking.
+- `reconcile` dropped users whose job was in the DLQ, which would have resold their unit after a replay: an oversell. Found by mutation testing.
+- The login page carried two contradicting robots tags, and a rate-limited login said "Couldn't reach the server". Found by e2e.
+- A test for "tampered password hash" was itself flaky: the last base64 character's low bits don't decode to anything.
+- Mutation testing kept finding a setup trap: when a `beforeAll` throws, Vitest skips the tests instead of failing them. Setup now runs in `beforeEach` or inside the test.
 
 ## Stress tests
 
 ```bash
-API_PROCESSES=2 RATE_LIMIT_MAX=100000 pnpm --filter @flashsale/api start   # limiter opened up for the run
-WORKER_CONCURRENCY=25 pnpm --filter @flashsale/worker start                 # twice, in two terminals
+API_PROCESSES=2 RATE_LIMIT_MAX=100000 pnpm --filter @flashsale/api start   # purchase limit opened up
+WORKER_CONCURRENCY=25 pnpm --filter @flashsale/worker start                 # run twice, two terminals
 pnpm stress
 ```
 
-Three scenarios: 10,000 users racing for 100 units, 1 user firing 1,000 concurrent attempts, and 5,000 users each retrying 3 times against 2,000 units (the "double-clicking while stock runs out" case). After each one the script waits for the queue to drain and checks Redis and Mongo directly. Expected outcome, and what the last run showed: every invariant passes, exactly 100 / 1 / 2,000 confirmed orders, zero duplicates, stock never negative, around 11,000-13,000 req/s with p99 under 100ms from a single client process. Full output and how to read it: `stress/README.md`.
+Virtual users carry signed session cookies, as if they'd logged in before the sale opened, which is what real flash-sale traffic looks like. Three scenarios: 10,000 users racing for 100 units, 1 user firing 1,000 concurrent attempts, and 5,000 users each clicking 3 times against 2,000 units. After each, the script waits for the queue to drain and checks Redis and Mongo directly.
+
+Expected outcome, and the last run: every invariant passes. Exactly 100 / 1 / 2,000 confirmed orders, zero duplicates, stock never negative, Redis and Mongo agree. 14,000 to 18,000 req/s from a single client process, p99 115 ms at worst, and the jobs split 1,043 / 1,058 between the two workers. Full output and how to read it: [`stress/README.md`](stress/README.md).
 
 ## Scaling
 
-The API and worker hold no state; every decision lives in Redis. So both scale by running more processes, on one host or many.
+The API and worker hold no state, so both scale by running more processes. Measured on an 8-core laptop, with the load generator on the same machine:
 
-- `API_PROCESSES=N` forks N API processes sharing the port. A process that crashes while serving is replaced (tested: killed one with `-9` under traffic, 40 of 40 requests still returned 200). A process that fails at startup stops the whole cluster with exit code 1 instead of fork-looping.
-- Workers: start more of them. BullMQ hands each job to exactly one; the last stress run split 2,101 jobs 1,067 / 1,034 across two.
-
-Measured on an 8-core laptop with the load generator on the same machine (purchase endpoint, full Lua path):
-
-| API processes | req/s | p50 latency |
+| API processes | req/s | p50 |
 |---|---|---|
 | 1 | 33,700 | 5 ms |
 | 2 | 52,700 | 3 ms |
 | 4 | 42,300 | 4 ms |
 
-Past 2 processes the box runs out of headroom: Redis was at 424,000 ops/s, about 10 Redis operations per purchase (rate-limit counter plus the reads inside the Lua script), while sharing cores with the load generator and the API. The next levers, in order: move rate limiting to the load balancer (cuts Redis work per purchase roughly in half), put Redis on its own host, then shard with Redis Cluster. Details in `docs/architecture.md`.
+Past two processes the shared Redis and the CPU the load generator also needs become the limit (424,000 Redis ops/s, about 10 per purchase). Next steps, cheapest first: rate limit at the load balancer, give Redis its own host, then Redis Cluster. A crashed API process is replaced (killed one with `-9` under traffic: 40 of 40 requests still returned 200); one that fails at startup stops the cluster instead of fork-looping. Details in [`docs/architecture.md`](docs/architecture.md).
 
-## Trade-offs worth knowing before reading the code
+## Trade-offs
 
-- Redis is the source of truth during the sale; Mongo is the durable record written after the fact. Faster hot path, at the cost of a `reconcile` step if Redis is ever lost (see `docs/architecture.md`, "Known limits").
-- A purchase attempt returns `pending`, not `confirmed`. The frontend renders that exact state on screen.
-- Single Redis instance. It's the one thing in this design that's a bottleneck and a single point of failure if traffic outgrows one box. Documented here directly, as the first thing to change for production.
-- Rate limiting covers `POST /api/purchase` only. Status reads stay unlimited so a page polling every 2 seconds, or many users behind one office NAT, never spends anyone's purchase budget.
+- **Redis is the source of truth during the sale**, Mongo the durable record written after. Fast hot path; the cost is a `reconcile` step if Redis is ever lost, and up to ~1 s of reservations at risk with AOF `everysec`.
+- **Idempotency keys are optional on the API.** The web app always sends one; a client that doesn't still can't create a duplicate order (three layers above), it just gets "already purchased" on a retry instead of a replay.
+- **"Pending" before "confirmed".** The page shows that state instead of hiding it behind a spinner.
+- **Login required to buy.** One extra step for the buyer, and it's what makes "one per user" mean one per real account instead of one per typed string.
+- **Single Redis instance**: the bottleneck and single point of failure if traffic outgrows one box. First thing to change for production.
+- **No real email**: the outbox stands in for a provider, so password reset works end to end without a third-party account.
 
-Each of these, plus the ones specific to a single decision (why BullMQ, why MongoDB, why Lua over a lock), has its own ADR in `docs/adr/`.
+## Docs
+
+- [`docs/architecture.md`](docs/architecture.md): diagram, request walkthrough, failure handling, scaling numbers, known limits
+- [`docs/adr/`](docs/adr/README.md): the reasoning behind each major choice
+- [`stress/README.md`](stress/README.md): stress test design and full results
+- [`CLAUDE.md`](CLAUDE.md): working in this repo, alone or with parallel agents

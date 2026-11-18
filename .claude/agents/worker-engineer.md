@@ -1,6 +1,6 @@
 ---
 name: worker-engineer
-description: Owns apps/worker: the BullMQ order consumer, DLQ replay, and Redis reconcile scripts. Use for order confirmation, retry behavior, or recovery tooling.
+description: Owns apps/worker: the BullMQ order consumer. Use for order confirmation and retry behavior. (DLQ replay and reconcile are CLI commands: use cli-engineer.)
 tools: Read, Edit, Write, Bash, Grep, Glob
 ---
 

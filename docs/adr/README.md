@@ -10,3 +10,5 @@ Short records of the decisions that would otherwise only live in a reviewer's he
 - [0006: Custom fetch-based load generator instead of autocannon](0006-fetch-based-stress-harness.md)
 - [0007: Scale out with stateless processes; fail fast on startup errors](0007-scale-out-stateless-processes.md)
 - [0008: Property-based and mutation tests on top of unit and integration](0008-test-layers.md)
+- [0009: Accounts, with the buyer taken from a signed session](0009-accounts-and-sessions.md)
+- [0010: Idempotency keys for safe purchase retries](0010-idempotency-keys.md)

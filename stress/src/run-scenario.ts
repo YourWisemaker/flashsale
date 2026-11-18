@@ -1,4 +1,4 @@
-import { ORDERS_COLLECTION, SaleGate } from "@flashsale/core";
+import { ORDERS_COLLECTION, SaleGate, type SessionTokens } from "@flashsale/core";
 import type { Queue } from "bullmq";
 import type { Db } from "mongodb";
 import type { Redis } from "ioredis";
@@ -11,7 +11,7 @@ import type { Scenario } from "./scenarios.js";
 
 export async function runScenario(
   scenario: Scenario,
-  deps: { apiUrl: string; redis: Redis; db: Db; queue: Queue; concurrency: number },
+  deps: { apiUrl: string; redis: Redis; db: Db; queue: Queue; concurrency: number; sessions: SessionTokens },
 ): Promise<boolean> {
   console.log(`\n=== ${scenario.name} ===`);
 
@@ -23,7 +23,8 @@ export async function runScenario(
   });
 
   const userIds = scenario.buildUserIds();
-  const tasks = userIds.map((userId) => () => attemptPurchase(deps.apiUrl, userId));
+  const tokens = new Map([...new Set(userIds)].map((userId) => [userId, deps.sessions.sign(userId)]));
+  const tasks = userIds.map((userId) => () => attemptPurchase(deps.apiUrl, userId, tokens.get(userId)!));
 
   const startedAt = performance.now();
   const results = await runWithConcurrency(tasks, deps.concurrency);

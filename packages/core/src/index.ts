@@ -17,3 +17,20 @@ export type { OrderDocument, OrderJobData } from "./orders.js";
 export { deriveUserOrderStatus } from "./user-order-status.js";
 export { PRODUCTS_COLLECTION, saveProduct, findProduct } from "./product.js";
 export type { ProductDocument } from "./product.js";
+export { hashPassword, verifyPassword, passwordProblem, PASSWORD_MIN_LENGTH, PASSWORD_MAX_LENGTH } from "./auth/password.js";
+export { createSessionTokens, SESSION_COOKIE, SESSION_TTL_SECONDS } from "./auth/session.js";
+export type { SessionTokens } from "./auth/session.js";
+export {
+  USERS_COLLECTION,
+  normalizeEmail,
+  ensureUserIndexes,
+  createUser,
+  checkCredentials,
+  userExists,
+  setPassword,
+  deleteUser,
+} from "./auth/users.js";
+export type { UserDocument } from "./auth/users.js";
+export { PASSWORD_RESETS_COLLECTION, RESET_TOKEN_TTL_MS, ensureResetIndexes, createResetToken, consumeResetToken } from "./auth/password-reset.js";
+export { OUTBOX_COLLECTION, sendMail, readOutbox } from "./auth/outbox.js";
+export type { Mail } from "./auth/outbox.js";

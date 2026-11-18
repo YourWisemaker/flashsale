@@ -19,6 +19,7 @@
     "test:mutation": "stryker run"
   },
   "dependencies": {
+    "fast-jwt": "^5",
     "ioredis": "^5.4.1",
     "mongodb": "^6.11.0"
   },

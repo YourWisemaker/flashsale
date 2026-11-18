@@ -1,73 +1,31 @@
-import { BuyBox } from "./components/BuyBox.js";
-import { FlashSaleBar } from "./components/FlashSaleBar.js";
+import { AuthProvider } from "./auth.js";
 import { Footer } from "./components/Footer.js";
-import { Gallery } from "./components/Gallery.js";
 import { Header } from "./components/Header.js";
-import { PriceBlock } from "./components/PriceBlock.js";
-import { ProductDetails } from "./components/ProductDetails.js";
-import { StockMeter } from "./components/StockMeter.js";
-import { PURCHASE_MESSAGES } from "./messages.js";
-import { useProduct } from "./useProduct.js";
-import { useProductSeo } from "./useProductSeo.js";
-import { usePurchase } from "./usePurchase.js";
-import { useSalePolling } from "./useSalePolling.js";
+import { ForgotPasswordPage } from "./pages/ForgotPasswordPage.js";
+import { LoginPage } from "./pages/LoginPage.js";
+import { NotFoundPage } from "./pages/NotFoundPage.js";
+import { RegisterPage } from "./pages/RegisterPage.js";
+import { ResetPasswordPage } from "./pages/ResetPasswordPage.js";
+import { ShopPage } from "./pages/ShopPage.js";
+import { useLocation } from "./router.js";
+
+const PAGES: Record<string, () => JSX.Element> = {
+  "/": ShopPage,
+  "/login": LoginPage,
+  "/register": RegisterPage,
+  "/forgot-password": ForgotPasswordPage,
+  "/reset-password": ResetPasswordPage,
+};
 
 export default function App() {
-  const { sale, error: saleError } = useSalePolling();
-  const product = useProduct();
-  const purchase = usePurchase();
-  useProductSeo(product, sale);
-
+  const Page = PAGES[useLocation().pathname] ?? NotFoundPage;
   return (
-    <>
+    <AuthProvider>
       <Header />
       <main className="container page">
-        <nav className="breadcrumb" aria-label="Breadcrumb">
-          <ol>
-            <li>Home</li>
-            <li>Shoes</li>
-            <li>Sneakers</li>
-            {product && <li aria-current="page">{product.name}</li>}
-          </ol>
-        </nav>
-
-        <section className="card product">
-          {product && <Gallery images={product.images} />}
-
-          <div className="product__info">
-            <h1 className="product__title">{product?.name ?? "Flash sale"}</h1>
-            <p className="product__tags">
-              <span className="tag">Limited edition</span>
-              <span className="tag">1 per customer</span>
-            </p>
-
-            {saleError && <p className="notice notice--error">Can't reach the sale status right now.</p>}
-            {!sale && !saleError && <p className="notice">Loading sale status...</p>}
-
-            {sale && (
-              <>
-                <FlashSaleBar sale={sale} />
-                {(sale.status === "ended" || sale.status === "sold_out") && (
-                  <p className="notice notice--warning">{PURCHASE_MESSAGES[sale.status].text}</p>
-                )}
-                {product && <PriceBlock product={product} />}
-                <StockMeter sale={sale} />
-              </>
-            )}
-
-            <BuyBox
-              saleOpen={sale?.status === "active"}
-              submitting={purchase.submitting}
-              pending={purchase.pending}
-              outcome={purchase.outcome}
-              onBuy={purchase.buy}
-            />
-          </div>
-        </section>
-
-        {product && <ProductDetails product={product} />}
+        <Page />
       </main>
       <Footer />
-    </>
+    </AuthProvider>
   );
 }

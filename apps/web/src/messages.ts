@@ -11,7 +11,8 @@ export const PURCHASE_MESSAGES: Record<PurchaseStatus | "confirmed", { text: str
   upcoming: { text: "The sale hasn't started yet.", tone: "warning" },
   ended: { text: "The sale has ended.", tone: "warning" },
   unavailable: { text: "Something's down on our end, try again in a moment.", tone: "error" },
-  invalid_user: { text: "Enter a valid username or email first.", tone: "error" },
+  unauthorized: { text: "Your session ended. Log in again to buy.", tone: "error" },
+  in_progress: { text: "Your purchase is already being processed.", tone: "info" },
   rate_limited: { text: "Slow down, too many attempts. Try again shortly.", tone: "error" },
   error: { text: "Couldn't reach the server. Try again.", tone: "error" },
 };

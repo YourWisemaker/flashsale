@@ -1,4 +1,4 @@
-import { connectMongo, createQueueConnection, createRedisClient, ORDER_QUEUE_NAME } from "@flashsale/core";
+import { connectMongo, createQueueConnection, createRedisClient, createSessionTokens, ORDER_QUEUE_NAME } from "@flashsale/core";
 import { Queue } from "bullmq";
 import { loadStressConfig } from "./config.js";
 import { runScenario } from "./run-scenario.js";
@@ -23,7 +23,7 @@ async function main() {
   const results: Array<{ name: string; passed: boolean }> = [];
 
   for (const scenario of SCENARIOS) {
-    const passed = await runScenario(scenario, { apiUrl: config.apiUrl, redis, db, queue, concurrency: config.concurrency });
+    const passed = await runScenario(scenario, { apiUrl: config.apiUrl, redis, db, queue, concurrency: config.concurrency, sessions: createSessionTokens(config.authSecret) });
     results.push({ name: scenario.name, passed });
   }
 

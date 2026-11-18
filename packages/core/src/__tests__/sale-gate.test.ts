@@ -84,7 +84,7 @@ describe("SaleGate.release", () => {
     await gate.configure({ ...activeWindow(), totalStock: 5 });
     await gate.purchase("arief");
 
-    await gate.release("arief");
+    expect(await gate.release("arief")).toBe(true);
 
     expect(await redis.get("sale:stock")).toBe("5");
     expect(await gate.purchase("arief")).toEqual({ outcome: "reserved", stockLeft: 4 });
@@ -92,7 +92,7 @@ describe("SaleGate.release", () => {
 
   it("is a no-op for a user who never reserved", async () => {
     await gate.configure({ ...activeWindow(), totalStock: 5 });
-    await gate.release("never-bought");
+    expect(await gate.release("never-bought")).toBe(false);
     expect(await redis.get("sale:stock")).toBe("5");
   });
 });

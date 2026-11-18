@@ -1,5 +1,16 @@
 import { confirmOrder, orderJobId, saveProduct } from "@flashsale/core";
-import { SEED_PRODUCT } from "../../seed/product.js";
+import type { ProductDocument } from "@flashsale/core";
+
+const PRODUCT: ProductDocument = {
+  sku: "HT-TEST",
+  name: "Test Hi-Top",
+  description: "A sneaker.",
+  priceCents: 8900,
+  originalPriceCents: 14900,
+  currency: "USD",
+  images: [{ url: "/products/a.jpg", alt: "side view" }],
+  specs: [{ label: "Upper", value: "Suede" }],
+};
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { activeWindow, setupTestApp } from "./test-helpers.js";
 
@@ -24,29 +35,50 @@ describe("GET /api/sale", () => {
 });
 
 describe("POST /api/purchase", () => {
-  it("rejects a missing userId with 400", async () => {
-    const res = await ctx.app.inject({ method: "POST", url: "/api/purchase", payload: {} });
-    expect(res.statusCode).toBe(400);
-    expect(res.json().error).toBe("invalid_user");
+  it("rejects a request without a session with 401, before touching stock", async () => {
+    await ctx.saleGate.configure({ ...activeWindow(), totalStock: 10 });
+    const res = await ctx.app.inject({ method: "POST", url: "/api/purchase", payload: { userId: "arief" } });
+    expect(res.statusCode).toBe(401);
+    expect(res.json()).toEqual({ error: "unauthorized", message: "Log in to continue." });
+    expect(await ctx.redis.get("sale:stock")).toBe("10");
+  });
+
+  it("rejects a forged or foreign session cookie with 401", async () => {
+    await ctx.saleGate.configure({ ...activeWindow(), totalStock: 10 });
+    const { createSessionTokens } = await import("@flashsale/core");
+    const foreign = createSessionTokens("some-other-secret-at-least-32-chars!!").sign("arief");
+    for (const cookie of ["session=garbage", `session=${foreign}`]) {
+      const res = await ctx.app.inject({ method: "POST", url: "/api/purchase", headers: { cookie } });
+      expect(res.statusCode).toBe(401);
+    }
+  });
+
+  it("buys as the logged-in user, ignoring any userId in the body", async () => {
+    await ctx.saleGate.configure({ ...activeWindow(), totalStock: 10 });
+    const res = await ctx.app.inject({ method: "POST", url: "/api/purchase", headers: ctx.as("arief@example.com"), payload: { userId: "boss@example.com" } });
+
+    expect(res.statusCode).toBe(202);
+    expect(await ctx.saleGate.isReserved("arief@example.com")).toBe(true);
+    expect(await ctx.saleGate.isReserved("boss@example.com")).toBe(false);
   });
 
   it("rejects before the sale starts with 403 upcoming", async () => {
     await ctx.saleGate.configure({ startsAt: new Date(Date.now() + 60_000), endsAt: new Date(Date.now() + 120_000), totalStock: 10 });
-    const res = await ctx.app.inject({ method: "POST", url: "/api/purchase", payload: { userId: "arief" } });
+    const res = await ctx.app.inject({ method: "POST", url: "/api/purchase", headers: ctx.as("arief") });
     expect(res.statusCode).toBe(403);
     expect(res.json().status).toBe("upcoming");
   });
 
   it("rejects after the sale ends with 403 ended", async () => {
     await ctx.saleGate.configure({ startsAt: new Date(Date.now() - 120_000), endsAt: new Date(Date.now() - 60_000), totalStock: 10 });
-    const res = await ctx.app.inject({ method: "POST", url: "/api/purchase", payload: { userId: "arief" } });
+    const res = await ctx.app.inject({ method: "POST", url: "/api/purchase", headers: ctx.as("arief") });
     expect(res.statusCode).toBe(403);
     expect(res.json().status).toBe("ended");
   });
 
   it("reserves a unit and enqueues an order job, returning 202 pending", async () => {
     await ctx.saleGate.configure({ ...activeWindow(), totalStock: 10 });
-    const res = await ctx.app.inject({ method: "POST", url: "/api/purchase", payload: { userId: "Arief " } });
+    const res = await ctx.app.inject({ method: "POST", url: "/api/purchase", headers: ctx.as("arief") });
 
     expect(res.statusCode).toBe(202);
     expect(res.json()).toMatchObject({ status: "pending", stockLeft: 9 });
@@ -58,7 +90,7 @@ describe("POST /api/purchase", () => {
 
   it("reserves a unit for a purely numeric userId (BullMQ rejects a bare integer job id)", async () => {
     await ctx.saleGate.configure({ ...activeWindow(), totalStock: 10 });
-    const res = await ctx.app.inject({ method: "POST", url: "/api/purchase", payload: { userId: "12345" } });
+    const res = await ctx.app.inject({ method: "POST", url: "/api/purchase", headers: ctx.as("12345") });
 
     expect(res.statusCode).toBe(202);
     expect(res.json().status).toBe("pending");
@@ -70,18 +102,18 @@ describe("POST /api/purchase", () => {
 
   it("rejects a second purchase from the same user with 409", async () => {
     await ctx.saleGate.configure({ ...activeWindow(), totalStock: 10 });
-    await ctx.app.inject({ method: "POST", url: "/api/purchase", payload: { userId: "arief" } });
+    await ctx.app.inject({ method: "POST", url: "/api/purchase", headers: ctx.as("arief") });
 
-    const res = await ctx.app.inject({ method: "POST", url: "/api/purchase", payload: { userId: "arief" } });
+    const res = await ctx.app.inject({ method: "POST", url: "/api/purchase", headers: ctx.as("arief") });
     expect(res.statusCode).toBe(409);
     expect(res.json().status).toBe("already_purchased");
   });
 
   it("returns 410 sold_out once stock is exhausted", async () => {
     await ctx.saleGate.configure({ ...activeWindow(), totalStock: 1 });
-    await ctx.app.inject({ method: "POST", url: "/api/purchase", payload: { userId: "arief" } });
+    await ctx.app.inject({ method: "POST", url: "/api/purchase", headers: ctx.as("arief") });
 
-    const res = await ctx.app.inject({ method: "POST", url: "/api/purchase", payload: { userId: "boss" } });
+    const res = await ctx.app.inject({ method: "POST", url: "/api/purchase", headers: ctx.as("boss") });
     expect(res.statusCode).toBe(410);
     expect(res.json().status).toBe("sold_out");
   });
@@ -92,7 +124,7 @@ describe("POST /api/purchase", () => {
     const failingQueue = { add: async () => Promise.reject(new Error("queue down")) };
     const brokenApp = await ctx.makeApp({ queue: failingQueue as never });
 
-    const res = await brokenApp.inject({ method: "POST", url: "/api/purchase", payload: { userId: "arief" } });
+    const res = await brokenApp.inject({ method: "POST", url: "/api/purchase", headers: ctx.as("arief") });
 
     expect(res.statusCode).toBe(503);
     expect(res.json()).toEqual({ status: "unavailable" });
@@ -101,15 +133,15 @@ describe("POST /api/purchase", () => {
     await brokenApp.close();
   });
 
-  it("rejects a request with no body at all with 400 instead of crashing", async () => {
-    const res = await ctx.app.inject({ method: "POST", url: "/api/purchase" });
-    expect(res.statusCode).toBe(400);
-    expect(res.json()).toEqual({ error: "invalid_user", message: "userId is required" });
+  it("needs no request body at all", async () => {
+    await ctx.saleGate.configure({ ...activeWindow(), totalStock: 5 });
+    const res = await ctx.app.inject({ method: "POST", url: "/api/purchase", headers: ctx.as("arief") });
+    expect(res.statusCode).toBe(202);
   });
 
   it("enqueues the job with the retry policy and a recognizable name", async () => {
     await ctx.saleGate.configure({ ...activeWindow(), totalStock: 5 });
-    await ctx.app.inject({ method: "POST", url: "/api/purchase", payload: { userId: "arief" } });
+    await ctx.app.inject({ method: "POST", url: "/api/purchase", headers: ctx.as("arief") });
 
     const job = await ctx.queue.getJob(orderJobId("arief"));
     expect(job?.name).toBe("confirm-order");
@@ -123,26 +155,31 @@ describe("failure paths", () => {
     const brokenGate = { purchase: async () => Promise.reject(new Error("redis down")) };
     const brokenApp = await ctx.makeApp({ saleGate: brokenGate as never });
 
-    const res = await brokenApp.inject({ method: "POST", url: "/api/purchase", payload: { userId: "arief" } });
+    const res = await brokenApp.inject({ method: "POST", url: "/api/purchase", headers: ctx.as("arief") });
 
     expect(res.statusCode).toBe(503);
     expect(res.json()).toEqual({ status: "unavailable" });
     await brokenApp.close();
   });
 
-  it("returns 429 rate_limited once an IP exceeds the purchase limit, without limiting status reads", async () => {
+  it("rate limits purchases per user, so people sharing an IP don't block each other", async () => {
     await ctx.saleGate.configure({ ...activeWindow(), totalStock: 10 });
     const limitedApp = await ctx.makeApp({ rateLimitMax: 2 });
-    const buy = (userId: string) => limitedApp.inject({ method: "POST", url: "/api/purchase", payload: { userId } });
+    const buy = (userId: string) => limitedApp.inject({ method: "POST", url: "/api/purchase", headers: ctx.as(userId) });
 
     expect((await buy("a")).statusCode).toBe(202);
-    expect((await buy("b")).statusCode).toBe(202);
-    const blocked = await buy("c");
-
+    expect((await buy("a")).statusCode).toBe(409);
+    const blocked = await buy("a");
     expect(blocked.statusCode).toBe(429);
     expect(blocked.json().status).toBe("rate_limited");
-    // The blocked request never reached the gate, so no unit was taken.
-    expect(await ctx.saleGate.isReserved("c")).toBe(false);
+
+    // The window is one second, so a client knows to retry almost at once.
+    expect(Number(blocked.headers["retry-after"])).toBeLessThanOrEqual(1);
+
+    // Same IP (inject always uses 127.0.0.1), different user: not blocked.
+    expect((await buy("b")).statusCode).toBe(202);
+    // The blocked request never reached the gate, so it took nothing.
+    expect(await ctx.redis.get("sale:stock")).toBe("8");
 
     for (let i = 0; i < 5; i++) {
       expect((await limitedApp.inject({ method: "GET", url: "/api/sale" })).statusCode).toBe(200);
@@ -151,45 +188,44 @@ describe("failure paths", () => {
   });
 });
 
-describe("GET /api/purchase/:userId", () => {
-  it("rejects an invalid userId with 400", async () => {
-    const res = await ctx.app.inject({ method: "GET", url: "/api/purchase/not%20valid" });
-    expect(res.statusCode).toBe(400);
-    expect(res.json()).toEqual({ error: "invalid_user", message: "userId is required" });
-  });
-
-  it("normalizes the userId the same way the purchase route does", async () => {
-    await ctx.saleGate.configure({ ...activeWindow(), totalStock: 10 });
-    await ctx.app.inject({ method: "POST", url: "/api/purchase", payload: { userId: "arief" } });
-
-    const res = await ctx.app.inject({ method: "GET", url: "/api/purchase/ARIEF" });
-    expect(res.json()).toEqual({ userId: "arief", status: "pending" });
+describe("GET /api/purchase/me", () => {
+  it("requires a session", async () => {
+    const res = await ctx.app.inject({ method: "GET", url: "/api/purchase/me" });
+    expect(res.statusCode).toBe(401);
   });
 
   it("returns none for a user who never attempted a purchase", async () => {
     await ctx.saleGate.configure({ ...activeWindow(), totalStock: 10 });
-    const res = await ctx.app.inject({ method: "GET", url: "/api/purchase/arief" });
+    const res = await ctx.app.inject({ method: "GET", url: "/api/purchase/me", headers: ctx.as("arief") });
     expect(res.json()).toEqual({ userId: "arief", status: "none" });
   });
 
   it("returns pending right after a reservation, before the worker confirms it", async () => {
     await ctx.saleGate.configure({ ...activeWindow(), totalStock: 10 });
-    await ctx.app.inject({ method: "POST", url: "/api/purchase", payload: { userId: "arief" } });
+    await ctx.app.inject({ method: "POST", url: "/api/purchase", headers: ctx.as("arief") });
 
-    const res = await ctx.app.inject({ method: "GET", url: "/api/purchase/arief" });
+    const res = await ctx.app.inject({ method: "GET", url: "/api/purchase/me", headers: ctx.as("arief") });
     expect(res.json()).toEqual({ userId: "arief", status: "pending" });
   });
 
   it("returns confirmed once the order is written (simulating the worker)", async () => {
     await ctx.saleGate.configure({ ...activeWindow(), totalStock: 10 });
-    await ctx.app.inject({ method: "POST", url: "/api/purchase", payload: { userId: "arief" } });
-
+    await ctx.app.inject({ method: "POST", url: "/api/purchase", headers: ctx.as("arief") });
     // apps/worker owns the real consumer; here we only need the API's
     // read path to reflect a confirmed Mongo record correctly.
     await confirmOrder(ctx.db, "arief");
 
-    const res = await ctx.app.inject({ method: "GET", url: "/api/purchase/arief" });
+    const res = await ctx.app.inject({ method: "GET", url: "/api/purchase/me", headers: ctx.as("arief") });
     expect(res.json()).toEqual({ userId: "arief", status: "confirmed" });
+  });
+
+  it("only ever shows your own status", async () => {
+    await ctx.saleGate.configure({ ...activeWindow(), totalStock: 10 });
+    await ctx.app.inject({ method: "POST", url: "/api/purchase", headers: ctx.as("arief") });
+
+    const res = await ctx.app.inject({ method: "GET", url: "/api/purchase/me", headers: ctx.as("boss") });
+    expect(res.json()).toEqual({ userId: "boss", status: "none" });
+    expect((await ctx.app.inject({ method: "GET", url: "/api/purchase/arief", headers: ctx.as("boss") })).statusCode).toBe(404);
   });
 });
 
@@ -231,13 +267,13 @@ describe("GET /api/product", () => {
   });
 
   it("returns the seeded product, cacheable, without Mongo internals", async () => {
-    await saveProduct(ctx.db, SEED_PRODUCT);
+    await saveProduct(ctx.db, PRODUCT);
 
     const res = await ctx.app.inject({ method: "GET", url: "/api/product" });
 
     expect(res.statusCode).toBe(200);
     expect(res.headers["cache-control"]).toBe("public, max-age=60");
-    expect(res.json()).toEqual(SEED_PRODUCT);
+    expect(res.json()).toEqual(PRODUCT);
   });
 });
 
@@ -253,14 +289,14 @@ describe("security headers", () => {
     expectHardened((await ctx.app.inject({ method: "GET", url: "/api/sale" })).headers);
   });
 
-  it("are set on errors too (404, 400, 429), so no response can be framed", async () => {
+  it("are set on errors too (404, 401, 429), so no response can be framed", async () => {
     expectHardened((await ctx.app.inject({ method: "GET", url: "/nope" })).headers);
-    expectHardened((await ctx.app.inject({ method: "POST", url: "/api/purchase", payload: {} })).headers);
+    expectHardened((await ctx.app.inject({ method: "POST", url: "/api/purchase", payload: {} })).headers); // 401
 
     await ctx.saleGate.configure({ ...activeWindow(), totalStock: 10 });
     const limitedApp = await ctx.makeApp({ rateLimitMax: 1 });
-    await limitedApp.inject({ method: "POST", url: "/api/purchase", payload: { userId: "a" } });
-    const blocked = await limitedApp.inject({ method: "POST", url: "/api/purchase", payload: { userId: "b" } });
+    await limitedApp.inject({ method: "POST", url: "/api/purchase", headers: ctx.as("a") });
+    const blocked = await limitedApp.inject({ method: "POST", url: "/api/purchase", headers: ctx.as("a") });
     expect(blocked.statusCode).toBe(429);
     expectHardened(blocked.headers);
     await limitedApp.close();

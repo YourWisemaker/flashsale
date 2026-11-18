@@ -2,7 +2,7 @@ import { existsSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { SEED_PRODUCT } from "../../seed/product.js";
+import { SEED_PRODUCT } from "../../data/product.js";
 
 // The web app serves these files from apps/web/public; a typo here
 // would ship a broken gallery that no other test would notice.

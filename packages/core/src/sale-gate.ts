@@ -62,9 +62,13 @@ export class SaleGate {
     return stockLeft === undefined ? { outcome } : { outcome, stockLeft: Number(stockLeft) };
   }
 
-  /** Gives a unit back. Call this when a reservation didn't make it onto the queue. */
-  async release(userId: string): Promise<void> {
-    await this.redis.releaseItem(SALE_STOCK_KEY, SALE_BUYERS_KEY, userId);
+  /**
+   * Gives a unit back if this user holds one. True when a unit was
+   * released, false when there was nothing to release.
+   */
+  async release(userId: string): Promise<boolean> {
+    const [result] = await this.redis.releaseItem(SALE_STOCK_KEY, SALE_BUYERS_KEY, userId);
+    return result === "released";
   }
 
   /** True if this user holds a reservation (queued or confirmed). */

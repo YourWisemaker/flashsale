@@ -10,12 +10,12 @@
     "clean": "rm -rf dist",
     "lint": "echo 'no lint configured for api'",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "seed": "tsx --env-file=../../.env src/scripts/seed.ts",
     "test": "vitest run src/__tests__/unit",
     "test:integration": "vitest run src/__tests__/integration",
     "test:mutation": "stryker run"
   },
   "dependencies": {
+    "@fastify/cookie": "^11",
     "@fastify/rate-limit": "^10.2.1",
     "@flashsale/core": "workspace:*",
     "bullmq": "^5.34.0",

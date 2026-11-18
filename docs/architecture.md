@@ -6,7 +6,7 @@ This redraws the two reference diagrams (load balancer + lock pattern, and order
 
 ```mermaid
 flowchart TD
-    U["User / React app"] -->|HTTP| LB["Load balancer"]
+    U["User / React app"] -->|"HTTP + session cookie"| LB["Load balancer"]
     LB --> API1["API instance 1 (Fastify)"]
     LB --> API2["API instance N (Fastify)"]
 
@@ -23,9 +23,9 @@ flowchart TD
     W2 -->|"upsert"| M
 
     W1 -->|"after 5 failed attempts"| DLQ[["Failed job set (DLQ)"]]
-    DLQ -->|"pnpm dlq:replay"| Q
+    DLQ -->|"pnpm cli dlq:replay"| Q
 
-    API1 -.->|"GET /api/purchase/:userId reads"| M
+    API1 -.->|"GET /api/purchase/me, accounts, product (off the purchase path)"| M
     API1 -.->|"and"| R
 ```
 
@@ -33,11 +33,15 @@ Locally the load balancer box isn't run; `API_PROCESSES=N` gives N API processes
 
 ## Components
 
-**React frontend (Arief Shop).** A marketplace-style product page. Loads `GET /api/product` once (display data, cacheable), polls `GET /api/sale` every 2 seconds for status and stock, posts to `/api/purchase` on "Buy Now", and after a `pending` result polls `GET /api/purchase/:userId` until it reads `confirmed`. No business logic lives here; it only renders what the API says. It can't be framed (`X-Frame-Options` plus CSP `frame-ancestors 'none'`), which is what stops a clickjacked "Buy Now".
+**React frontend (Arief Shop).** A marketplace-style product page plus log in, sign up, forgot and reset password pages. Loads `GET /api/product` once (display data, cacheable), polls `GET /api/sale` every 2 seconds for status and stock, posts to `/api/purchase` on "Buy Now" (the session cookie says who's buying), and after a `pending` result polls `GET /api/purchase/me` until it reads `confirmed`. No business logic lives here; it only renders what the API says. It can't be framed (`X-Frame-Options` plus CSP `frame-ancestors 'none'`), which is what stops a clickjacked "Buy Now".
 
-**Load balancer + rate limit.** In production, any LB in front of N API instances. The rate limit itself lives in the API (`@fastify/rate-limit`, backed by Redis so the count holds across instances) and covers `POST /api/purchase` only. Status reads stay unlimited: the page polls every 2 seconds, and many users can share one office NAT IP, so limiting reads would spend people's purchase budget on polling.
+**Load balancer + rate limit.** In production, any LB in front of N API instances. Rate limits live in the API (`@fastify/rate-limit`, backed by Redis so counts hold across instances). Purchases are limited per account, so people behind one office NAT don't block each other. Log in, sign up and password reset are limited per IP per minute, against password guessing and reset-mail spam. Status reads stay unlimited: the page polls every 2 seconds.
 
 **API (Fastify).** Stateless. `API_PROCESSES=N` forks N copies sharing the port on one host (Node's cluster module, round robin), the same shape as N containers behind an LB. A copy that crashes while serving is replaced; one that dies before it ever listens (port taken, Redis unreachable at boot) shuts the cluster down with exit code 1, because a replacement would hit the same error and fork-loop. The only thing it does on the purchase hot path is run `purchase.lua` against Redis and, if that reserves a unit, enqueue a job. No database call on this path. See `apps/api/src/routes/purchase.ts`.
+
+**Accounts and sessions.** Users sign up with an email and password (scrypt hash in Mongo). Logging in sets a signed session token (HS256 JWT) in an `httpOnly`, `SameSite=Strict` cookie. On the purchase path the API only verifies that signature, in memory: no database lookup, so auth costs microseconds per purchase. The session's email is the buyer; nothing in the request body can change it. Forgot password stores a hashed, single-use, 30-minute reset token and "sends" the link to an outbox collection, a stand-in for an email provider. See ADR 0009.
+
+**Ops CLI.** `pnpm cli` (`apps/cli`) does everything an operator needs against Redis and Mongo: seed, inject product, clean up one user or all, reset, create and delete accounts, read the outbox, replay the DLQ, reconcile Redis from Mongo. Cleaning up a user goes through `release.lua`, so their unit returns to stock atomically.
 
 **Product display data.** One Mongo document (name, price, photos, specs) written by the seed and served by `GET /api/product` with `Cache-Control: public, max-age=60`, so a CDN or the browser absorbs page-load traffic. It's deliberately separate from the sale: stock and the window live in Redis, and nothing on the purchase path reads Mongo.
 
@@ -47,12 +51,12 @@ Locally the load balancer box isn't run; `API_PROCESSES=N` gives N API processes
 
 **MongoDB.** The system of record for confirmed orders. One collection, one document shape, one unique index. Queried by the status endpoint and by the stress harness's invariant checks.
 
-**DLQ (BullMQ's failed set).** A job that fails 5 times (exponential backoff) lands here instead of disappearing. `apps/worker/src/scripts/dlq-replay.ts` moves failed jobs back onto the queue once whatever broke (usually Mongo being unreachable) is fixed.
+**DLQ (BullMQ's failed set).** A job that fails 5 times (exponential backoff) lands here instead of disappearing. `pnpm cli dlq:replay` moves failed jobs back onto the queue once whatever broke (usually Mongo being unreachable) is fixed.
 
 ## Request walkthrough
 
-1. User clicks "Buy Now." Frontend posts `{ userId }` to `POST /api/purchase`.
-2. API normalizes the userId (trim, lowercase) and runs `purchase.lua`.
+1. User clicks "Buy Now." Frontend posts to `POST /api/purchase`; the browser sends the session cookie.
+2. API verifies the session signature (401 if missing, forged or expired), takes the email from it as the buyer, and applies the per-user rate limit. If the request carries an `Idempotency-Key`, the API claims it atomically in Redis (`SET NX`, 24 h, scoped to the account): a key it has already answered gets that same answer back, a key still in flight gets 409 `in_progress`. Then it runs `purchase.lua`.
 3. Script outcome decides the response:
    - `upcoming` / `ended` → 403, sale isn't open.
    - `already_purchased` → 409, this user already has a unit.
@@ -61,7 +65,8 @@ Locally the load balancer box isn't run; `API_PROCESSES=N` gives N API processes
 4. On `reserved`, API enqueues `{ userId, reservedAt }` with `jobId = order-<userId>` (BullMQ rejects bare-integer ids, and a numeric userId is valid), returns `202 pending`. Completed jobs are removed so the same user can be enqueued again in a later sale.
 5. If the enqueue itself throws, the API runs `release.lua` to give the unit back and returns `503`, so the user can retry instead of a unit vanishing into nothing.
 6. A worker (one of possibly many) picks up the job and upserts the confirmed order into Mongo.
-7. Frontend, seeing `pending`, polls `GET /api/purchase/:userId` until the response flips to `confirmed`.
+7. The API stores the response under the idempotency key, except a 503, which is worth retrying, so the key is released instead.
+8. Frontend, seeing `pending`, polls `GET /api/purchase/me` until the response flips to `confirmed`.
 
 ## Scaling this further
 
@@ -83,5 +88,5 @@ Two processes add 56%. Four is worse than two because the box is out of headroom
 
 Documented instead of hidden, matching PRD section 8:
 
-- Redis runs with AOF (`appendfsync everysec`). A hard crash can lose up to ~1 second of reservations that hadn't yet reached the queue. `apps/worker/src/scripts/reconcile.ts` rebuilds `sale:buyers`/`sale:stock` from Mongo's confirmed orders plus whatever's still in the queue, but it can't recover a reservation that never reached either store, and it can't recover the sale's start/end/stock numbers if `sale:config` itself was lost (re-seeding with the original values is the only recovery there).
+- Redis runs with AOF (`appendfsync everysec`). A hard crash can lose up to ~1 second of reservations that hadn't yet reached the queue. `pnpm cli reconcile` rebuilds `sale:buyers`/`sale:stock` from Mongo's confirmed orders plus every unconfirmed job still in Redis, DLQ included (a DLQ job will confirm an order when replayed, so its user keeps their unit), but it can't recover a reservation that never reached either store, and it can't recover the sale's start/end/stock numbers if `sale:config` itself was lost (re-seeding with the original values is the only recovery there).
 - Single Redis instance is a single point of failure for the entire purchase path. Acceptable for this exercise's scope; called out as the first thing to change for a real production deployment.

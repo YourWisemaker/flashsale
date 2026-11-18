@@ -14,14 +14,15 @@
     "test": "turbo test",
     "test:integration": "turbo test:integration",
     "clean": "turbo clean && rm -rf node_modules",
-    "seed": "pnpm --filter @flashsale/api run seed",
-    "dlq:replay": "pnpm --filter @flashsale/worker run dlq:replay",
-    "reconcile": "pnpm --filter @flashsale/worker run reconcile",
+    "seed": "pnpm cli seed",
+    "dlq:replay": "pnpm cli dlq:replay",
+    "reconcile": "pnpm cli reconcile",
     "stress": "pnpm --filter @flashsale/stress run stress",
     "test:e2e": "pnpm --filter @flashsale/web run test:e2e",
     "infra:up": "docker compose up -d",
     "infra:down": "docker compose down",
-    "test:mutation": "turbo test:mutation"
+    "test:mutation": "turbo test:mutation",
+    "cli": "pnpm --filter @flashsale/cli run cli"
   },
   "devDependencies": {
     "turbo": "^2.3.0",

@@ -1,5 +1,5 @@
 import cluster from "node:cluster";
-import { connectMongo, createQueueConnection, createRedisClient, SaleGate } from "@flashsale/core";
+import { connectMongo, createQueueConnection, createRedisClient, createSessionTokens, SaleGate } from "@flashsale/core";
 import { buildApp } from "./app.js";
 import { loadConfig } from "./config.js";
 import { createOrderQueue } from "./queue.js";
@@ -12,7 +12,17 @@ async function startInstance() {
   const queue = createOrderQueue(createQueueConnection(config.redisUrl));
   const saleGate = new SaleGate(redis);
 
-  const app = await buildApp({ saleGate, redis, db, queue, rateLimitMax: config.rateLimitMax });
+  const app = await buildApp({
+    saleGate,
+    redis,
+    db,
+    queue,
+    rateLimitMax: config.rateLimitMax,
+    authRateLimitMax: config.authRateLimitMax,
+    sessions: createSessionTokens(config.authSecret),
+    webUrl: config.webUrl,
+    cookieSecure: config.cookieSecure,
+  });
 
   await app.listen({ port: config.port, host: "0.0.0.0" });
 }
