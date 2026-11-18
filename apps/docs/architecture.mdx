@@ -5,28 +5,41 @@ description: Components, the purchase path, and how the system scales.
 
 ```mermaid
 flowchart TD
-    U["User / React app"] -->|"HTTP + session cookie"| LB["Load balancer"]
-    LB --> API1["API instance 1 (Fastify)"]
-    LB --> API2["API instance N (Fastify)"]
+    U["User / React app"] -->|"HTTPS + session cookie"| LB["Load balancer"]
 
-    API1 -->|"rate limit (purchase only) + purchase.lua: window, dedupe, decrement"| R[("Redis")]
-    API2 -->|"purchase.lua"| R
+    subgraph APIS["API: N stateless Fastify instances"]
+        direction LR
+        API1["API instance 1"]
+        API2["API instance N"]
+    end
+    LB --> API1
+    LB --> API2
 
-    API1 -->|"enqueue order job (jobId = order-userId)"| Q[["BullMQ queue (on Redis)"]]
-    API2 -->|"enqueue order job"| Q
+    subgraph REDIS["Redis: one server, two jobs"]
+        direction LR
+        GATE[("Purchase gate (synchronous)<br/>sale:config, sale:stock, sale:buyers<br/>rate-limit counters, idem:*")]
+        QUEUE[["Order queue (asynchronous)<br/>BullMQ: bull:orders:*"]]
+        DLQ[["Failed set (DLQ)<br/>bull:orders:failed"]]
+    end
 
-    Q --> W1["Order worker 1"]
-    Q --> W2["Order worker N"]
+    APIS -->|"1. rate limit, Idempotency-Key,<br/>purchase.lua (atomic)"| GATE
+    APIS -->|"2. enqueue (jobId = order-userId)"| QUEUE
 
-    W1 -->|"upsert, unique index on userId"| M[("MongoDB")]
-    W2 -->|"upsert"| M
+    subgraph WORKERS["Workers: N processes"]
+        direction LR
+        W1["Order worker 1"]
+        W2["Order worker N"]
+    end
+    QUEUE --> W1
+    QUEUE --> W2
 
-    W1 -->|"after 5 failed attempts"| DLQ[["Failed job set (DLQ)"]]
-    DLQ -->|"pnpm cli dlq:replay"| Q
-
-    API1 -.->|"GET /api/purchase/me, accounts, product (off the purchase path)"| M
-    API1 -.->|"and"| R
+    WORKERS -->|"upsert, unique index on userId"| M[("MongoDB<br/>durable orders, accounts, product")]
+    WORKERS -->|"after 5 failed attempts"| DLQ
+    DLQ -.->|"pnpm cli dlq:replay"| QUEUE
+    APIS -.->|"order status, accounts, product (off the purchase path)"| M
 ```
+
+Redis is drawn as one box with two parts because it does two different jobs on one server. The **purchase gate** is read and written inside the request: every API instance runs the same atomic `purchase.lua` against the same keys, which is what makes the decision correct no matter which instance a request lands on. The **order queue** is BullMQ's job list: an instance drops a job and answers `202 pending` at once, and whichever worker is free writes the durable order to MongoDB afterwards. The buyer only waits for the gate. In production the two can move to separate Redis instances.
 
 Locally there's no load balancer box: `API_PROCESSES=N` runs N API processes on one host, and you start as many workers as you like. Both API and worker are stateless, so every copy talks to the same Redis and Mongo and you can run as many as traffic needs.
 
