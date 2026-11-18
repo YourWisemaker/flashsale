@@ -1,4 +1,8 @@
-import { connectMongo, createRedisClient, ensureOrderIndexes, ORDERS_COLLECTION, SaleGate } from "@flashsale/core";
+import { connectMongo, createRedisClient, ensureOrderIndexes, ORDERS_COLLECTION, saveProduct, SaleGate } from "@flashsale/core";
+// The real seed data, so e2e also proves the shipped images and copy render.
+import { SEED_PRODUCT } from "../../api/src/seed/product.js";
+
+export { SEED_PRODUCT };
 
 const REDIS_URL = process.env.REDIS_URL ?? "redis://localhost:6379";
 const MONGO_URL = process.env.MONGO_URL ?? "mongodb://localhost:27017/flashsale";
@@ -15,6 +19,7 @@ export async function seedSale(input: { totalStock: number; startsInMs?: number;
   const { client, db } = await connectMongo(MONGO_URL);
   await ensureOrderIndexes(db);
   await db.collection(ORDERS_COLLECTION).deleteMany({});
+  await saveProduct(db, SEED_PRODUCT);
   await new SaleGate(redis).configure({
     startsAt: new Date(Date.now() + (input.startsInMs ?? -1000)),
     endsAt: new Date(Date.now() + (input.endsInMs ?? 10 * MINUTE)),

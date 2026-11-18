@@ -1,4 +1,5 @@
-import { confirmOrder, orderJobId } from "@flashsale/core";
+import { confirmOrder, orderJobId, saveProduct } from "@flashsale/core";
+import { SEED_PRODUCT } from "../../seed/product.js";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { activeWindow, setupTestApp } from "./test-helpers.js";
 
@@ -219,5 +220,49 @@ describe("buildApp", () => {
     const app = await buildApp({ saleGate: ctx.saleGate, redis: ctx.redis, db: ctx.db, queue: ctx.queue, rateLimitMax: 10 });
     expect(app.log.level).toBe("info");
     await app.close();
+  });
+});
+
+describe("GET /api/product", () => {
+  it("returns 404 with a hint when nothing is seeded", async () => {
+    const res = await ctx.app.inject({ method: "GET", url: "/api/product" });
+    expect(res.statusCode).toBe(404);
+    expect(res.json()).toEqual({ error: "not_found", message: "No product seeded. Run pnpm seed." });
+  });
+
+  it("returns the seeded product, cacheable, without Mongo internals", async () => {
+    await saveProduct(ctx.db, SEED_PRODUCT);
+
+    const res = await ctx.app.inject({ method: "GET", url: "/api/product" });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.headers["cache-control"]).toBe("public, max-age=60");
+    expect(res.json()).toEqual(SEED_PRODUCT);
+  });
+});
+
+describe("security headers", () => {
+  const expectHardened = (headers: Record<string, unknown>) => {
+    expect(headers["x-frame-options"]).toBe("DENY");
+    expect(headers["content-security-policy"]).toBe("default-src 'none'; frame-ancestors 'none'");
+    expect(headers["x-content-type-options"]).toBe("nosniff");
+    expect(headers["referrer-policy"]).toBe("no-referrer");
+  };
+
+  it("are set on normal responses", async () => {
+    expectHardened((await ctx.app.inject({ method: "GET", url: "/api/sale" })).headers);
+  });
+
+  it("are set on errors too (404, 400, 429), so no response can be framed", async () => {
+    expectHardened((await ctx.app.inject({ method: "GET", url: "/nope" })).headers);
+    expectHardened((await ctx.app.inject({ method: "POST", url: "/api/purchase", payload: {} })).headers);
+
+    await ctx.saleGate.configure({ ...activeWindow(), totalStock: 10 });
+    const limitedApp = await ctx.makeApp({ rateLimitMax: 1 });
+    await limitedApp.inject({ method: "POST", url: "/api/purchase", payload: { userId: "a" } });
+    const blocked = await limitedApp.inject({ method: "POST", url: "/api/purchase", payload: { userId: "b" } });
+    expect(blocked.statusCode).toBe(429);
+    expectHardened(blocked.headers);
+    await limitedApp.close();
   });
 });

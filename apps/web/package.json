@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -p tsconfig.json --noEmit && vite build",
-    "start": "vite preview --port 5173",
+    "start": "vite preview",
     "clean": "rm -rf dist",
     "lint": "echo 'no lint configured for web'",
     "typecheck": "tsc -p tsconfig.json --noEmit",

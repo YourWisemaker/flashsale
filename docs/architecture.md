@@ -33,11 +33,13 @@ Locally the load balancer box isn't run; `API_PROCESSES=N` gives N API processes
 
 ## Components
 
-**React frontend.** Polls `GET /api/sale` every 2 seconds for status and stock, posts to `/api/purchase` on "Buy Now", and after a `pending` result polls `GET /api/purchase/:userId` until it reads `confirmed`. No business logic lives here; it only renders what the API says.
+**React frontend (Arief Shop).** A marketplace-style product page. Loads `GET /api/product` once (display data, cacheable), polls `GET /api/sale` every 2 seconds for status and stock, posts to `/api/purchase` on "Buy Now", and after a `pending` result polls `GET /api/purchase/:userId` until it reads `confirmed`. No business logic lives here; it only renders what the API says. It can't be framed (`X-Frame-Options` plus CSP `frame-ancestors 'none'`), which is what stops a clickjacked "Buy Now".
 
 **Load balancer + rate limit.** In production, any LB in front of N API instances. The rate limit itself lives in the API (`@fastify/rate-limit`, backed by Redis so the count holds across instances) and covers `POST /api/purchase` only. Status reads stay unlimited: the page polls every 2 seconds, and many users can share one office NAT IP, so limiting reads would spend people's purchase budget on polling.
 
 **API (Fastify).** Stateless. `API_PROCESSES=N` forks N copies sharing the port on one host (Node's cluster module, round robin), the same shape as N containers behind an LB. A copy that crashes while serving is replaced; one that dies before it ever listens (port taken, Redis unreachable at boot) shuts the cluster down with exit code 1, because a replacement would hit the same error and fork-loop. The only thing it does on the purchase hot path is run `purchase.lua` against Redis and, if that reserves a unit, enqueue a job. No database call on this path. See `apps/api/src/routes/purchase.ts`.
+
+**Product display data.** One Mongo document (name, price, photos, specs) written by the seed and served by `GET /api/product` with `Cache-Control: public, max-age=60`, so a CDN or the browser absorbs page-load traffic. It's deliberately separate from the sale: stock and the window live in Redis, and nothing on the purchase path reads Mongo.
 
 **Redis.** Two jobs, both justified in the ADRs: the atomic purchase gate (window, dedupe, stock) via Lua scripts, and the backing store for the BullMQ queue. One instance, so it's also the one component this design doesn't horizontally scale (see "Known limits" below).
 

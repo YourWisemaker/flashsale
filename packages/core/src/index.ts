@@ -15,3 +15,5 @@ export type {
 export { ORDERS_COLLECTION, ensureOrderIndexes, confirmOrder, findOrder, countConfirmedOrders } from "./orders.js";
 export type { OrderDocument, OrderJobData } from "./orders.js";
 export { deriveUserOrderStatus } from "./user-order-status.js";
+export { PRODUCTS_COLLECTION, saveProduct, findProduct } from "./product.js";
+export type { ProductDocument } from "./product.js";

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { attemptPurchase } from "./api.js";
+import { attemptPurchase, fetchProduct } from "./api.js";
 
 function respondWith(status: number, body: unknown) {
   vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(body), { status })));
@@ -34,5 +34,17 @@ describe("attemptPurchase", () => {
   it("falls back to error when the network call itself fails", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => Promise.reject(new TypeError("Failed to fetch"))));
     expect((await attemptPurchase("arief")).status).toBe("error");
+  });
+});
+
+describe("fetchProduct", () => {
+  it("returns the product on 200", async () => {
+    respondWith(200, { sku: "HT-1" });
+    expect(await fetchProduct()).toEqual({ sku: "HT-1" });
+  });
+
+  it("returns null when nothing is seeded (404), so the page still renders", async () => {
+    respondWith(404, { error: "not_found" });
+    expect(await fetchProduct()).toBeNull();
   });
 });

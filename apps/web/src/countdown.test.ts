@@ -1,24 +1,24 @@
 import { describe, expect, it } from "vitest";
-import { formatCountdown } from "./countdown.js";
+import { countdownParts } from "./countdown.js";
 
 const NOW = Date.parse("2026-11-18T10:00:00.000Z");
 const inMs = (ms: number) => new Date(NOW + ms).toISOString();
 
-describe("formatCountdown", () => {
-  it("formats minutes and seconds with zero padding", () => {
-    expect(formatCountdown(inMs(65_000), NOW)).toBe("01:05");
+describe("countdownParts", () => {
+  it("splits into zero-padded hours, minutes and seconds", () => {
+    expect(countdownParts(inMs((1 * 3600 + 2 * 60 + 3) * 1000), NOW)).toEqual({ hours: "01", minutes: "02", seconds: "03" });
   });
 
   it("rounds partial seconds down", () => {
-    expect(formatCountdown(inMs(9_999), NOW)).toBe("00:09");
+    expect(countdownParts(inMs(9_999), NOW)).toEqual({ hours: "00", minutes: "00", seconds: "09" });
   });
 
-  it("clamps to 00:00 once the target has passed", () => {
-    expect(formatCountdown(inMs(0), NOW)).toBe("00:00");
-    expect(formatCountdown(inMs(-5_000), NOW)).toBe("00:00");
+  it("clamps to zero once the target has passed", () => {
+    expect(countdownParts(inMs(0), NOW)).toEqual({ hours: "00", minutes: "00", seconds: "00" });
+    expect(countdownParts(inMs(-5_000), NOW)).toEqual({ hours: "00", minutes: "00", seconds: "00" });
   });
 
-  it("keeps counting minutes past an hour instead of wrapping", () => {
-    expect(formatCountdown(inMs(61 * 60_000), NOW)).toBe("61:00");
+  it("keeps counting hours past a day instead of wrapping", () => {
+    expect(countdownParts(inMs(30 * 3600 * 1000), NOW).hours).toBe("30");
   });
 });

@@ -39,6 +39,7 @@ export async function setupTestApp() {
       await ctx.app?.close();
       await redis.flushdb();
       await db.collection("orders").deleteMany({});
+      await db.collection("products").deleteMany({});
       ctx.app = await makeApp();
     },
     async teardown() {

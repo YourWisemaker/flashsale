@@ -1,4 +1,4 @@
-# Flash Sale System
+# Arief Shop: Flash Sale System
 
 A single-product, limited-stock flash sale backend: a configurable sale window, hard stock limit, one unit per user, built to hold up when thousands of requests hit the same second.
 
@@ -29,7 +29,7 @@ flowchart TD
 apps/
   api/      Fastify server: sale status, purchase, per-user status, health
   worker/   BullMQ consumer that confirms orders into MongoDB; dlq-replay and reconcile scripts
-  web/      React + Vite frontend
+  web/      React + Vite storefront (public/ holds the favicon, robots.txt and product photos)
 packages/
   core/     Shared domain logic: the Lua scripts, Redis/Mongo helpers, order schema, userId rules
 stress/     Load test harness + the invariant checks that prove correctness under load
@@ -84,11 +84,23 @@ pnpm --filter @flashsale/api run seed -- --force
 | Method | Path | Response |
 |---|---|---|
 | GET | `/api/sale` | `{ status, startsAt, endsAt, totalStock, stockLeft }`, status is `upcoming` / `active` / `ended` / `sold_out` |
+| GET | `/api/product` | The product's display data (name, price, photos, specs), `Cache-Control: public, max-age=60`. 404 if not seeded. Not on the purchase path. |
 | POST | `/api/purchase` `{ userId }` | 202 `pending`, 409 `already_purchased`, 410 `sold_out`, 403 `upcoming`/`ended`, 400 `invalid_user`, 429 `rate_limited` (per IP, this route only), 503 `unavailable` (Redis or queue down) |
 | GET | `/api/purchase/:userId` | `{ userId, status }`, status is `none` / `pending` / `confirmed` |
 | GET | `/health` | 200 when Redis and Mongo both respond |
 
-Full outcome table and the reasoning behind each status code: `docs/PRD.md` section 5.
+Full outcome table and the reasoning behind each status code: `docs/PRD.md` section 5. Every API response, errors included, carries `X-Frame-Options: DENY`, `Content-Security-Policy: default-src 'none'; frame-ancestors 'none'`, `X-Content-Type-Options: nosniff` and `Referrer-Policy: no-referrer`.
+
+## Storefront
+
+Arief Shop's product page, modeled on a marketplace listing: photo gallery, a flash-sale bar with a live countdown, sale price against the original with the discount, a stock meter, the buy box, then specs and description. It works down to phone width.
+
+Still one product, per the brief. Its display data (name, price, photos, specs) lives in one Mongo document written by `pnpm seed` (`apps/api/src/seed/product.ts`) and served by `GET /api/product`. Nothing about it touches the purchase path: stock, the window, and who bought stay in Redis.
+
+- **SEO**: title, meta description, canonical URL, Open Graph and Twitter card tags in `apps/web/index.html`; schema.org `Product` JSON-LD with live price and availability, updated as the sale status changes; `robots.txt` keeps crawlers off `/api/`. Set `VITE_SITE_URL` to the public URL so canonical and `og:image` links are absolute.
+- **Favicon**: `apps/web/public/favicon.svg`.
+- **Anti-clickjacking**: the page can't be framed, so a hidden "Buy Now" can't be hijacked. The dev and preview servers send `X-Frame-Options: DENY` and `Content-Security-Policy: frame-ancestors 'none'`; the production preview also sends a full CSP (`default-src 'self'`, no inline scripts), checked with zero violations. `frame-ancestors` can't be set from a `<meta>` tag, so whatever serves the built files in production must send these headers too (see `apps/web/vite.config.ts`).
+- **Photos**: by LouisBlaut, CC BY-SA 4.0, via Wikimedia Commons, cropped to squares. Credited in the page footer and `apps/web/public/products/CREDITS.md`. Chosen because they show one hand-made shoe from two sides, with no brand logos.
 
 ## Tests
 
@@ -96,11 +108,11 @@ Six layers. Unit and integration run against real Redis and Mongo (there's no fa
 
 | Layer | Command | What it proves | Count |
 |---|---|---|---|
-| Unit | `pnpm test` | Gate logic, mappers, config, React components and API client | 80 (core 50, api 9, worker 2, web 19) |
+| Unit | `pnpm test` | Gate logic, mappers, config, seed data, React components, API client, SEO data | 105 (core 54, api 12, worker 2, web 37) |
 | Property-based | part of `pnpm test` | fast-check runs hundreds of random purchase/release sequences and concurrent bursts against a plain reference model of the rules | 7 properties |
-| Integration | `pnpm test:integration` | Every endpoint and status code, 429/503 paths, the real cluster entry point, a real BullMQ worker end to end including the DLQ | 29 (api 24, worker 5) |
+| Integration | `pnpm test:integration` | Every endpoint and status code, 429/503 paths, security headers on errors too, the real cluster entry point, a real BullMQ worker end to end including the DLQ | 33 (api 28, worker 5) |
 | Mutation | `pnpm test:mutation` | Stryker edits the source (flip a `<`, drop a branch) and checks a test fails each time | 100% score on core, api, worker |
-| End-to-end | `pnpm test:e2e` | Real Chromium against the running stack | 5 |
+| End-to-end | `pnpm test:e2e` | Real Chromium against the running stack, including SEO tags, favicon, and a hostile page failing to frame the shop | 8 |
 | Stress | `pnpm stress` | 26,000 requests across 3 scenarios, then invariant checks in Redis and Mongo | 3 scenarios |
 
 Each package's tests use their own Redis db index and Mongo database, so they run in parallel without clashing. To point them at a different Redis/Mongo (another worktree, CI), set `TEST_REDIS_URL` and `TEST_MONGO_URL`.
@@ -113,7 +125,7 @@ npx playwright install chromium         # one time only
 pnpm test:e2e
 ```
 
-The e2e suite covers buy, pending to confirmed, a blocked second purchase, losing the race for the last unit (Playwright's clock freezes the status poll so the page still says "active" when the server has sold out), and the upcoming/ended/sold-out screens. Details in `apps/web/e2e/README.md`.
+The e2e suite covers the seeded product with its photos actually loading, buy, pending to confirmed, a blocked second purchase, losing the race for the last unit (Playwright's clock freezes the status poll so the page still says "active" when the server has sold out), and the upcoming/ended/sold-out screens. Details in `apps/web/e2e/README.md`.
 
 ### Bugs the test layers caught
 

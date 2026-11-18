@@ -53,3 +53,21 @@ export async function fetchUserStatus(userId: string): Promise<UserOrderStatus> 
   const body = await res.json();
   return body.status;
 }
+
+export interface Product {
+  sku: string;
+  name: string;
+  description: string;
+  priceCents: number;
+  originalPriceCents: number;
+  currency: string;
+  images: { url: string; alt: string }[];
+  specs: { label: string; value: string }[];
+}
+
+/** Null when the API has no product seeded (404); the page still works without it. */
+export async function fetchProduct(): Promise<Product | null> {
+  const res = await fetch("/api/product");
+  if (!res.ok) return null;
+  return res.json();
+}
