@@ -32,11 +32,13 @@ export interface AppDeps {
   maxEventLoopLagMs?: number;
   /** When set, every request is tracked and GET /debug/memory serves the counts. Off unless MEMORY_TRACKER=1. */
   memoryTracker?: MemoryTracker;
+  /** Behind a proxy or load balancer: take the client IP from X-Forwarded-For, so per-IP auth limits stay per user. */
+  trustProxy?: boolean;
   logger?: boolean;
 }
 
 export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
-  const app = Fastify({ logger: deps.logger ?? true });
+  const app = Fastify({ logger: deps.logger ?? true, trustProxy: deps.trustProxy ?? false });
   await app.register(cookie);
   // Stryker disable next-line StringLiteral: declares the property up front for V8 shape stability; behavior is identical without it.
   app.decorateRequest("user", null);

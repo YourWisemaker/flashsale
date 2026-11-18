@@ -24,4 +24,4 @@ Match the history: a short summary line naming what changed, comma separated for
 Load shedding, Swagger UI, Mintlify docs
 ```
 
-Body only when the why isn't obvious: plain sentences, no em dashes, no bold-label bullets. Add the attribution lines the session asks for. Never `--no-verify`, never force-push `main`, never rewrite pushed history.
+Body only when the why isn't obvious: plain sentences, no em dashes, no bold-label bullets. No `Co-Authored-By` or other AI attribution trailer. Never `--no-verify`, never force-push `main`, never rewrite pushed history.

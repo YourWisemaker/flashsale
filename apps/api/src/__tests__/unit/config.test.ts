@@ -15,6 +15,7 @@ describe("loadConfig", () => {
       cookieSecure: false,
       maxEventLoopLagMs: 200,
       memoryTracker: false,
+      trustProxy: false,
     });
   });
 
@@ -63,6 +64,11 @@ describe("loadConfig", () => {
     it("starts with a strong secret, and forces secure cookies", () => {
       expect(prod({ AUTH_SECRET: "x".repeat(32) })).toMatchObject({ authSecret: "x".repeat(32), cookieSecure: true });
     });
+  });
+
+  it("trusts X-Forwarded-For only for the exact value 1", () => {
+    expect(loadConfig({ TRUST_PROXY: "1" }).trustProxy).toBe(true);
+    expect(loadConfig({ TRUST_PROXY: "true" }).trustProxy).toBe(false);
   });
 
   it("turns the memory tracker on only for the exact value 1", () => {

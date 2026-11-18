@@ -40,7 +40,7 @@ Match the history (`git log --oneline -5`): one summary line naming what changed
 Graceful shutdown, memory tracker, Postman collection
 ```
 
-Body when the why isn't obvious: short paragraphs, plain sentences, concrete names (file, env var, ADR number). No em dashes, no marketing words, no bold-label bullets. Add attribution lines only if the session's instructions ask for them.
+Body when the why isn't obvious: short paragraphs, plain sentences, concrete names (file, env var, ADR number). No em dashes, no marketing words, no bold-label bullets. No `Co-Authored-By` or other AI attribution trailer: commits go out under the author's name only.
 
 ```bash
 git commit -F - <<'MSG'

@@ -1,0 +1,89 @@
+# The whole stack in containers, production builds. Needs an AUTH_SECRET:
+#
+#   AUTH_SECRET=$(openssl rand -hex 32) docker compose -f docker-compose.full.yml up --build
+#   open http://localhost:8080          (log in as demo@example.com / FlashSale2026!)
+#
+# docker-compose.yml (Redis + Mongo only) stays the setup for local development.
+name: flashsale-full
+
+x-app-env: &app-env
+  REDIS_URL: redis://redis:6379
+  MONGO_URL: mongodb://mongo:27017/flashsale
+  NODE_ENV: production
+  AUTH_SECRET: ${AUTH_SECRET:?Set AUTH_SECRET, e.g. AUTH_SECRET=$$(openssl rand -hex 32)}
+  WEB_URL: ${WEB_URL:-http://localhost:8080}
+
+services:
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes --appendfsync everysec
+    volumes: [redis-data:/data]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 2s
+      retries: 20
+
+  mongo:
+    image: mongo:8
+    volumes: [mongo-data:/data/db]
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+  # One-shot: indexes, product, a sale that starts now and runs an hour, demo account.
+  seed:
+    build: { context: ., target: cli }
+    command: ["seed", "--force", "--start", "now", "--minutes", "${SALE_MINUTES:-60}", "--stock", "${SALE_STOCK:-100}"]
+    environment:
+      REDIS_URL: redis://redis:6379
+      MONGO_URL: mongodb://mongo:27017/flashsale
+    depends_on:
+      redis: { condition: service_healthy }
+      mongo: { condition: service_healthy }
+    restart: "no"
+
+  api:
+    build: { context: ., target: api }
+    environment:
+      <<: *app-env
+      API_PROCESSES: ${API_PROCESSES:-2}
+      TRUST_PROXY: "1"
+    depends_on:
+      redis: { condition: service_healthy }
+      mongo: { condition: service_healthy }
+      seed: { condition: service_completed_successfully }
+    restart: unless-stopped
+    # Graceful shutdown drains for up to 10 s; give it room before SIGKILL.
+    stop_grace_period: 15s
+
+  worker:
+    build: { context: ., target: worker }
+    environment:
+      <<: *app-env
+      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-25}
+    depends_on:
+      redis: { condition: service_healthy }
+      mongo: { condition: service_healthy }
+    deploy:
+      replicas: ${WORKER_REPLICAS:-2}
+    restart: unless-stopped
+    stop_grace_period: 15s
+
+  web:
+    build:
+      context: .
+      target: web
+      args:
+        VITE_SITE_URL: ${WEB_URL:-http://localhost:8080}
+    ports:
+      - "${WEB_PORT:-8080}:8080"
+    depends_on:
+      api: { condition: service_healthy }
+    restart: unless-stopped
+
+volumes:
+  redis-data:
+  mongo-data:

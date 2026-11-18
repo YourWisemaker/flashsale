@@ -1,0 +1,152 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+# Every job that needs Redis and Mongo gets its own service containers on the
+# default ports, which is what the test suites expect (TEST_REDIS_URL /
+# TEST_MONGO_URL default to localhost).
+env:
+  FORCE_COLOR: "1"
+
+jobs:
+  checks:
+    name: Lint, typecheck, unit, integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: --health-cmd "redis-cli ping" --health-interval 2s --health-timeout 2s --health-retries 20
+      mongo:
+        image: mongo:8
+        ports: ["27017:27017"]
+        options: --health-cmd "mongosh --quiet --eval 'db.adminCommand(1)'" --health-interval 2s --health-timeout 5s --health-retries 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - run: pnpm typecheck
+      - run: pnpm lint
+      - run: pnpm test
+      - run: pnpm test:integration
+
+  e2e:
+    name: End-to-end (Playwright)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: --health-cmd "redis-cli ping" --health-interval 2s --health-timeout 2s --health-retries 20
+      mongo:
+        image: mongo:8
+        ports: ["27017:27017"]
+        options: --health-cmd "mongosh --quiet --eval 'db.adminCommand(1)'" --health-interval 2s --health-timeout 5s --health-retries 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @flashsale/web exec playwright install --with-deps chromium
+      - run: pnpm build
+      - run: pnpm cli seed --force --start now --minutes 60
+      - name: Start the stack
+        run: |
+          AUTH_RATE_LIMIT_MAX=1000 pnpm dev > dev.log 2>&1 &
+          for _ in $(seq 1 60); do
+            curl -sf localhost:3000/health > /dev/null && curl -sf -o /dev/null localhost:5173 && exit 0
+            sleep 2
+          done
+          cat dev.log; exit 1
+      - run: pnpm test:e2e
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: |
+            apps/web/playwright-report
+            dev.log
+
+  mutation:
+    name: Mutation (${{ matrix.package }})
+    # Minutes per package: run on main and on demand, not on every PR push.
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        package: [core, api, worker, cli]
+    services:
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: --health-cmd "redis-cli ping" --health-interval 2s --health-timeout 2s --health-retries 20
+      mongo:
+        image: mongo:8
+        ports: ["27017:27017"]
+        options: --health-cmd "mongosh --quiet --eval 'db.adminCommand(1)'" --health-interval 2s --health-timeout 5s --health-retries 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - run: pnpm --filter @flashsale/${{ matrix.package }} test:mutation
+
+  docker:
+    name: Docker images + full-stack smoke test
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      COMPOSE_FILE: docker-compose.full.yml
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build images
+        run: AUTH_SECRET=ci docker compose build
+      - name: Start the stack
+        run: |
+          AUTH_SECRET=$(openssl rand -hex 32)
+          export AUTH_SECRET
+          docker compose up -d
+          for _ in $(seq 1 60); do curl -sf localhost:8080/health > /dev/null && exit 0; sleep 2; done
+          docker compose logs; exit 1
+      - name: Buy through nginx, end to end
+        run: |
+          curl -sf -c jar -H 'content-type: application/json' \
+            -d '{"email":"demo@example.com","password":"FlashSale2026!"}' localhost:8080/api/auth/login
+          test "$(curl -s -o /dev/null -w '%{http_code}' -b jar -X POST localhost:8080/api/purchase)" = 202
+          for _ in $(seq 1 20); do
+            curl -s -b jar localhost:8080/api/purchase/me | grep -q confirmed && break
+            sleep 1
+          done
+          curl -s -b jar localhost:8080/api/purchase/me | grep -q confirmed
+          test "$(curl -s -o /dev/null -w '%{http_code}' -b jar -X POST localhost:8080/api/purchase)" = 409
+          curl -sI localhost:8080/ | grep -qi "frame-ancestors 'none'"
+      - name: Graceful stop exits 0
+        run: |
+          AUTH_SECRET=ci docker compose stop api worker
+          test -z "$(AUTH_SECRET=ci docker compose ps -a --format '{{.Service}} {{.ExitCode}}' | grep -E '^(api|worker) ' | grep -v ' 0$')"
+      - if: always()
+        run: AUTH_SECRET=ci docker compose down -v

@@ -12,7 +12,7 @@ A flash sale for one limited-edition product: a configurable sale window, fixed 
 - **Requirements**: [Requirements at a glance](#requirements-at-a-glance) · [How it works](#how-it-works) · [The frontend, requirement by requirement](#the-frontend-requirement-by-requirement) · [The flow](#the-flow) · [What it does](#what-it-does)
 - **Reference**: [API](#api) · [Ops CLI](#ops-cli) · [Configuration](#configuration)
 - **Testing and scale**: [Tests](#tests) · [Stress tests](#stress-tests) · [Scaling](#scaling) · [Trade-offs](#trade-offs)
-- **Repository**: [Docs](#docs)
+- **Repository**: [Docs](#docs) · [Deploy to AWS](docs/deploy/aws.md)
 
 ## Test account
 
@@ -37,6 +37,16 @@ pnpm dev                    # API :3000, worker, web :5173
 
 Open http://localhost:5173 and log in with the test account. To start the sale right now instead of in a minute: `pnpm cli seed --force --start now --minutes 60`.
 
+### Or run the whole stack in Docker
+
+Production builds of every service (API cluster, 2 workers, nginx serving the storefront, Redis, MongoDB, a one-shot seed):
+
+```bash
+AUTH_SECRET=$(openssl rand -hex 32) docker compose -f docker-compose.full.yml up --build
+```
+
+Open http://localhost:8080 and log in with the test account. The sale starts immediately and runs an hour (`SALE_MINUTES`, `SALE_STOCK` to change it). `docker compose -f docker-compose.full.yml down -v` removes everything.
+
 ## Project structure
 
 ```
@@ -47,6 +57,10 @@ flashsale/
 ├── tsconfig.base.json
 ├── eslint.config.mjs                  # one flat ESLint config for every package
 ├── docker-compose.yml                 # Redis 7 + MongoDB 8 for local dev
+├── docker-compose.full.yml            # whole stack in containers (production builds)
+├── Dockerfile                         # multi-target: api, worker, web (nginx), cli
+├── deploy/nginx.conf                  # serves the web build, proxies /api, security headers
+├── .github/workflows/ci.yml           # lint, tests, e2e, mutation, Docker smoke test
 ├── .env.example                       # every setting, with working local defaults
 ├── packages/
 │   └── core/                          # the rules, shared by every app
@@ -99,6 +113,7 @@ flashsale/
 ├── docs/
 │   ├── architecture.md                # diagram, request walkthrough, scaling
 │   ├── adr/                           # decisions 0001 to 0013
+│   ├── deploy/aws.md                  # AWS deployment guide
 │   ├── PRD.md                         # original design spec
 │   └── verification-log.md            # dated results of the full check matrix
 ├── .claude/                           # agents (one per package), skills, flash-sale-arief plugin
@@ -273,6 +288,7 @@ All in `.env` (copy `.env.example`). Defaults work for local development.
 | `AUTH_RATE_LIMIT_MAX` | 10 | Log in / sign up / reset attempts per IP per minute |
 | `MAX_EVENT_LOOP_LAG_MS` | 200 | Shed requests with 503 past this event loop lag; 0 turns it off |
 | `MEMORY_TRACKER` | off | `GET /debug/memory` with live objects per route |
+| `TRUST_PROXY` | off | `1` behind nginx or a load balancer: per-IP limits read `X-Forwarded-For` |
 | `AUTH_SECRET` | dev value | Signs sessions. Required (32+ chars) in production |
 | `WEB_URL` | http://localhost:5173 | Links in reset emails |
 | `COOKIE_SECURE` | on in production | Session cookie only over HTTPS |
@@ -287,14 +303,15 @@ All in `.env` (copy `.env.example`). Defaults work for local development.
 
 | Layer | Command | What it proves | Count |
 |---|---|---|---|
-| Unit | `pnpm test` | Gate logic, auth (tokens, hashing, forged and expired sessions), idempotency keys, CLI commands and validation, React pages and components | 285 |
+| Unit | `pnpm test` | Gate logic, auth (tokens, hashing, forged and expired sessions), idempotency keys, CLI commands and validation, React pages and components | 286 |
 | Property-based | part of `pnpm test` | fast-check runs hundreds of random purchase/release sequences and concurrent bursts against a plain reference model of the rules | 7 properties |
-| Integration | `pnpm test:integration` | Every endpoint and status code, idempotent retries and concurrent duplicates, real Redis and Mongo, the cluster entry point, a real BullMQ worker and DLQ, every CLI command | 141 |
+| Integration | `pnpm test:integration` | Every endpoint and status code, idempotent retries and concurrent duplicates, real Redis and Mongo, the cluster entry point, a real BullMQ worker and DLQ, every CLI command | 143 |
 | Mutation | `pnpm test:mutation` | Stryker changes the code (flip a `<`, drop a branch) and checks a test fails each time | 100% on core, api, worker, cli |
 | End-to-end | `pnpm test:e2e` | Real Chromium, real stack: buy flow, the race for the last unit, sign up, forgot and reset password, SEO tags, a hostile page failing to frame the shop | 11 |
 | Contract (Python) | `pnpm test:python` | pytest against the running API: every status code it sees must be in `openapi.yaml`, plus security headers and cache headers. Read only | 7 |
 | Postman | `pnpm test:postman` | The collection in `postman/` run by newman: every endpoint, cookie session carried between requests | 14 requests, 0 failures |
 | Lint | `pnpm lint` | ESLint 10 flat config (`eslint.config.mjs`), typescript-eslint, react-hooks | 0 problems |
+| CI | GitHub Actions (`.github/workflows/ci.yml`) | Lint, typecheck, unit and integration on every push and PR; e2e; mutation on `main`; builds the Docker images and buys through nginx in the full stack | 5 jobs |
 | Stress | `pnpm stress` | 26,000 requests across 3 scenarios, then invariant checks | 3 scenarios |
 
 ```bash
@@ -349,7 +366,7 @@ Past two processes the shared Redis and the CPU the load generator also needs be
 
 ### Before running this in production
 
-This repo runs everything locally (the brief allows that). For a real launch:
+This repo runs everything locally (the brief allows that), and `docker-compose.full.yml` runs the production images. For AWS, follow [`docs/deploy/aws.md`](docs/deploy/aws.md): ECS Fargate, MemoryDB, MongoDB Atlas, CloudFront and WAF. In any environment:
 
 1. **Managed Redis with a replica and failover**, AOF on. It's the purchase gate, the queue and the rate limiter, so it's the single point of failure today.
 2. **MongoDB replica set** (or Atlas) for the durable order record.
@@ -376,6 +393,7 @@ This repo runs everything locally (the brief allows that). For a real launch:
 - **Swagger UI**: http://localhost:3000/docs on the running API (raw spec at `/docs/json`). The spec is `apps/api/openapi.yaml`; a test fails if a route is missing from it.
 - [`PERFORMANCE_REVIEW.md`](PERFORMANCE_REVIEW.md): what a purchase costs, every measured number, how to reproduce, which knob to turn
 - [`REPOSITORY_ANALYSIS.md`](REPOSITORY_ANALYSIS.md): shape, size, coverage, risks ranked by production impact
+- [`docs/deploy/aws.md`](docs/deploy/aws.md): deploying to AWS (ECS Fargate, MemoryDB, Atlas, CloudFront, WAF), with steps and a pre-sale checklist
 - [`docs/architecture.md`](docs/architecture.md): diagram, request walkthrough, failure handling, scaling numbers, known limits
 - [`docs/adr/`](docs/adr/README.md): the reasoning behind each major choice
 - [`docs/verification-log.md`](docs/verification-log.md): what was checked before each change shipped, with real counts

@@ -1,0 +1,20 @@
+# Never in an image: secrets, the confidential brief, local tooling state.
+.env
+.env.*
+!.env.example
+docs/brief.md
+.git
+**/node_modules
+**/dist
+.turbo
+**/.turbo
+.venv
+.codegraph
+.serena/cache
+.stryker-tmp
+**/.stryker-tmp
+reports
+**/reports
+apps/web/test-results
+apps/web/playwright-report
+**/*.tsbuildinfo

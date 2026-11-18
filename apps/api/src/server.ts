@@ -30,6 +30,7 @@ async function startInstance() {
     cookieSecure: config.cookieSecure,
     maxEventLoopLagMs: config.maxEventLoopLagMs,
     memoryTracker: config.memoryTracker ? new MemoryTracker() : undefined,
+    trustProxy: config.trustProxy,
   });
 
   await app.listen({ port: config.port, host: "0.0.0.0" });

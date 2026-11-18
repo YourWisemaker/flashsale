@@ -17,6 +17,8 @@ export interface AppConfig {
   maxEventLoopLagMs: number;
   /** Debug aid, off by default: counts live request objects per route, serves GET /debug/memory. */
   memoryTracker: boolean;
+  /** Trust X-Forwarded-For (set when running behind nginx or a load balancer). Off by default: a direct client could spoof it. */
+  trustProxy: boolean;
 }
 
 // Fine on a laptop, and the reason production refuses to start without its own.
@@ -43,5 +45,6 @@ export function loadConfig(env: NodeJS.ProcessEnv): AppConfig {
     cookieSecure: production || env.COOKIE_SECURE === "true",
     maxEventLoopLagMs: Number(env.MAX_EVENT_LOOP_LAG_MS ?? 200),
     memoryTracker: env.MEMORY_TRACKER === "1",
+    trustProxy: env.TRUST_PROXY === "1",
   };
 }

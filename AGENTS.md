@@ -26,6 +26,7 @@ pnpm test:mutation                # touched core, api, worker or cli: must stay 
 pnpm test:e2e                     # touched web or auth; needs AUTH_RATE_LIMIT_MAX=1000 pnpm dev running
 pnpm test:python                  # API contract from outside; needs a running API and .venv (see tests/python)
 pnpm test:postman                 # Postman collection via newman; needs a running API
+AUTH_SECRET=$(openssl rand -hex 32) docker compose -f docker-compose.full.yml up --build   # whole stack in containers
 ```
 
 ## Rules that break the system if ignored

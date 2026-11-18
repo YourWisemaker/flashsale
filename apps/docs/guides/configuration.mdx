@@ -15,6 +15,7 @@ All in `.env` (copy `.env.example`). Defaults work for local development.
 | `AUTH_RATE_LIMIT_MAX` | 10 | Log in / sign up / reset attempts per IP per minute |
 | `MAX_EVENT_LOOP_LAG_MS` | 200 | Shed requests with 503 past this event loop lag; 0 turns it off |
 | `MEMORY_TRACKER` | off | `GET /debug/memory` with live objects per route |
+| `TRUST_PROXY` | off | `1` behind nginx or a load balancer: per-IP limits read `X-Forwarded-For` |
 | `AUTH_SECRET` | dev value | Signs sessions. Required (32+ chars) in production |
 | `WEB_URL` | http://localhost:5173 | Links in reset emails |
 | `COOKIE_SECURE` | on in production | Session cookie only over HTTPS |

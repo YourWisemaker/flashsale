@@ -2,26 +2,66 @@
   "$schema": "https://mintlify.com/docs.json",
   "theme": "mint",
   "name": "Arief Shop Flash Sale",
-  "colors": { "primary": "#1d4ed8", "light": "#3b82f6", "dark": "#1e3a8a" },
+  "colors": {
+    "primary": "#1d4ed8",
+    "light": "#3b82f6",
+    "dark": "#1e3a8a"
+  },
   "favicon": "/favicon.svg",
   "navigation": {
     "tabs": [
       {
         "tab": "Guides",
         "groups": [
-          { "group": "Get started", "pages": ["index", "quickstart", "flows"] },
-          { "group": "How it works", "pages": ["architecture", "concepts/purchase-gate", "concepts/idempotency", "concepts/resilience", "concepts/accounts"] },
-          { "group": "Operate and test", "pages": ["guides/configuration", "guides/cli", "guides/testing"] }
+          {
+            "group": "Get started",
+            "pages": [
+              "index",
+              "quickstart",
+              "flows"
+            ]
+          },
+          {
+            "group": "How it works",
+            "pages": [
+              "architecture",
+              "concepts/purchase-gate",
+              "concepts/idempotency",
+              "concepts/resilience",
+              "concepts/accounts"
+            ]
+          },
+          {
+            "group": "Operate and test",
+            "pages": [
+              "guides/configuration",
+              "guides/cli",
+              "guides/testing",
+              "guides/deploy-aws"
+            ]
+          }
         ]
       },
       {
         "tab": "API reference",
         "groups": [
-          { "group": "Overview", "pages": ["api-reference/introduction"] },
-          { "group": "Endpoints", "openapi": "api-reference/openapi.yaml" }
+          {
+            "group": "Overview",
+            "pages": [
+              "api-reference/introduction"
+            ]
+          },
+          {
+            "group": "Endpoints",
+            "openapi": "api-reference/openapi.yaml"
+          }
         ]
       }
     ]
   },
-  "footer": { "socials": { "github": "https://github.com/YourWisemaker/flashsale" } }
+  "footer": {
+    "socials": {
+      "github": "https://github.com/YourWisemaker/flashsale"
+    }
+  }
 }

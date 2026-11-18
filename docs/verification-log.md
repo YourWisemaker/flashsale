@@ -32,3 +32,16 @@ Notes: worker and cli mutation not rerun (no logic changed there; worker `index.
 | docs | Mintlify broken-links: none; README relative links all resolve |
 
 Notes: stress not rerun (purchase path unchanged). Dev data reseeded after e2e and screenshots.
+
+## 2026-11-18 infra: Dockerfile, full-stack compose, CI, AWS guide, TRUST_PROXY
+
+| Check | Result |
+|---|---|
+| build, typecheck, lint | pass |
+| unit + property | 286 passed |
+| integration | 143 passed (api 92, cli 45, worker 6) |
+| mutation | api 100% (424 mutants) |
+| Docker | all 4 images build; full stack up healthy; login, buy (202), confirmed by a worker, second buy 409, all through nginx; CSP and X-Frame-Options on the site |
+| graceful stop | `docker compose stop api worker`: all exited 0, 5 SIGTERM drains logged |
+| CI workflow | actionlint clean (not yet run on GitHub) |
+| docs | Mintlify validate and broken-links: pass |

@@ -26,6 +26,7 @@ pnpm cli seed                 # indexes, product, sale window, demo account (dem
 pnpm cli                      # interactive ops menu; pnpm cli --help for every command
 pnpm dev                      # api + worker + web, watch mode. Swagger UI: http://localhost:3000/docs
 pnpm docs                     # Mintlify docs site on :3333 (copies the OpenAPI spec first)
+AUTH_SECRET=$(openssl rand -hex 32) docker compose -f docker-compose.full.yml up --build   # whole stack, prod images, :8080
 
 pnpm typecheck
 pnpm lint                     # ESLint 10 flat config at the root (eslint.config.mjs)
@@ -38,6 +39,13 @@ pnpm test:python              # pytest contract tests vs the running API. One ti
 pnpm stress                   # Needs api (RATE_LIMIT_MAX raised) + worker running. Wipes orders. See stress/README.md.
 pnpm --filter @flashsale/<core|api|worker|cli|web|stress> run <script>
 ```
+
+## Infra
+
+- `Dockerfile` (root, multi-target: `api`, `worker`, `web`, `cli`) and `deploy/nginx.conf`. The nginx CSP must match `productionCsp` in `apps/web/vite.config.ts`.
+- `docker-compose.full.yml`: production images end to end. `docker-compose.yml` stays the dev infra (Redis + Mongo only).
+- `.github/workflows/ci.yml`: checks, e2e, mutation (main only), Docker smoke test. Lint it with `docker run --rm -v "$PWD":/repo -w /repo rhysd/actionlint:latest`.
+- `docs/deploy/aws.md`: the AWS target. Behind a proxy or ALB set `TRUST_PROXY=1`.
 
 ## Skills, agents, code graph
 

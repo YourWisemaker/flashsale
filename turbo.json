@@ -17,7 +17,8 @@
     "MAX_EVENT_LOOP_LAG_MS",
     "STRESS_API_URL",
     "STRESS_CONCURRENCY",
-    "MEMORY_TRACKER"
+    "MEMORY_TRACKER",
+    "TRUST_PROXY"
   ],
   "tasks": {
     "build": {

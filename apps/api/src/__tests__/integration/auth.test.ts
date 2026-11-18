@@ -112,6 +112,28 @@ describe("login / me / logout", () => {
     expect(blocked.json()).toEqual({ statusCode: 429, status: "rate_limited", message: "Too many attempts. Wait a moment and try again." });
     await limited.close();
   });
+
+  it("behind a proxy (trustProxy), limits each client IP from X-Forwarded-For, not the proxy's", async () => {
+    const behindProxy = await ctx.makeApp({ authRateLimitMax: 1, trustProxy: true });
+    const attemptFrom = (ip: string) =>
+      behindProxy.inject({ method: "POST", url: "/api/auth/login", headers: { "x-forwarded-for": ip }, payload: { email: "arief@example.com", password: "guess-1234" } });
+
+    expect((await attemptFrom("203.0.113.1")).statusCode).toBe(401);
+    expect((await attemptFrom("203.0.113.1")).statusCode).toBe(429);
+    // A different user behind the same proxy isn't blocked by the first one.
+    expect((await attemptFrom("203.0.113.2")).statusCode).toBe(401);
+    await behindProxy.close();
+  });
+
+  it("without trustProxy, ignores X-Forwarded-For (a client can't dodge the limit by faking it)", async () => {
+    const direct = await ctx.makeApp({ authRateLimitMax: 1 });
+    const attemptAs = (ip: string) =>
+      direct.inject({ method: "POST", url: "/api/auth/login", headers: { "x-forwarded-for": ip }, payload: { email: "arief@example.com", password: "guess-1234" } });
+
+    expect((await attemptAs("203.0.113.1")).statusCode).toBe(401);
+    expect((await attemptAs("203.0.113.2")).statusCode).toBe(429);
+    await direct.close();
+  });
 });
 
 describe("forgot password", () => {
